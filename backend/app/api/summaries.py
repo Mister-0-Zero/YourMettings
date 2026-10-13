@@ -48,6 +48,7 @@ def edit_summary(id: UUID, body: SummaryEdit, db: Session = Depends(get_db)):
 
 @router.put("/{id}/folders", response_model=SummaryOut)
 def assign_folders(id: UUID, body: FolderAssignment, db: Session = Depends(get_db)):
+    lock_user_data(db)
     item = owned_summary(db, id, lock=True)
     validate_folders(db, body.folder_ids)
     db.execute(delete(SummaryFolder).where(SummaryFolder.summary_id == item.id))

@@ -77,7 +77,7 @@ def test_api_contract_endpoint_inventory(client):
         "/api/v1/summaries/{id}": {"get", "patch", "delete"},
         "/api/v1/summaries/{id}/folders": {"put"},
         "/api/v1/folders": {"get", "post"},
-        "/api/v1/folders/{id}": {"patch"},
+        "/api/v1/folders/{id}": {"patch", "delete"},
     }
     assert {path for path in paths if path.startswith("/api/v1")} == set(expected)
     for path, methods in expected.items():
