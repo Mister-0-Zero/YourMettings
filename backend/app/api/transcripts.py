@@ -63,6 +63,7 @@ def accept_processing(db, item, body, generator):
     item.processing_status = "summarizing"
     item.processing_title = body.title
     item.processing_folder_ids = body.folder_ids
+    item.processing_options = body.generation_options()
     item.processing_attempt += 1
     item.error_code = None
 
@@ -91,8 +92,13 @@ def create_and_process(body: CreateProcessInput, tasks: BackgroundTasks,
     db: Session = Depends(get_db), generator=Depends(get_generator)):
     check_size(body.text)
     source_hash = hashlib.sha256(body.text.encode("utf-8")).hexdigest()
-    canonical = json.dumps({"text": body.text, "title": body.title,
-        "folder_ids": sorted(str(id) for id in body.folder_ids)}, ensure_ascii=False, sort_keys=True)
+    parameters = {"text": body.text, "title": body.title,
+        "folder_ids": sorted(str(id) for id in body.folder_ids)}
+    options = body.generation_options()
+    # Preserve fingerprints accepted before optional generation settings existed.
+    if options != {"detail_level": "normal", "focus_areas": [], "additional_instructions": ""}:
+        parameters["generation_options"] = options
+    canonical = json.dumps(parameters, ensure_ascii=False, sort_keys=True)
     request_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     values = dict(owner_user_id=TEST_USER_ID, text=body.text, source_hash=source_hash,
         request_hash=request_hash, idempotency_key=idempotency_key,

@@ -23,7 +23,7 @@ def request_body(client):
 def test_atomic_creation_visible_before_llm_and_summary_saved(client, database):
     body = request_body(client)
     class InspectGenerator(FakeGenerator):
-        def generate(self, source):
+        def generate(self, source, *, options=None):
             with database() as db:
                 row = db.scalar(select(Transcript))
                 assert row.text == source == body["text"]
@@ -32,7 +32,7 @@ def test_atomic_creation_visible_before_llm_and_summary_saved(client, database):
                 assert list(map(str, row.processing_folder_ids)) == body["folder_ids"]
                 assert row.processing_attempt == 1
                 assert db.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state='idle in transaction'")) == 0
-            return super().generate(source)
+            return super().generate(source, options=options)
     fake = InspectGenerator()
     app.dependency_overrides[get_generator] = lambda: fake
     response = client.post(URL, json=body)

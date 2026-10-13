@@ -5,7 +5,7 @@ from sqlalchemy import (
     CheckConstraint, DateTime, ForeignKey, Integer, String, Text,
     UniqueConstraint, func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -46,6 +46,7 @@ class Transcript(Base):
     processing_status: Mapped[str] = mapped_column(String(20), default="not_started")
     processing_title: Mapped[str | None] = mapped_column(String(200))
     processing_folder_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
+    processing_options: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     processing_attempt: Mapped[int] = mapped_column(Integer, default=0)
     error_code: Mapped[str | None] = mapped_column(String(64))
 

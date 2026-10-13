@@ -38,7 +38,8 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
             if item.processing_attempt != attempt or item.processing_status != "summarizing":
                 return
             source = item.text
-        content = generator.generate(source)
+            options = dict(item.processing_options)
+        content = generator.generate(source, options=options)
         if not isinstance(content, str) or not content.strip():
             raise LLMError("llm_invalid_response")
         with factory.begin() as db:

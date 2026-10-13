@@ -12,7 +12,7 @@ def test_ollama_sends_fixed_prompt_and_uses_configured_tag():
         assert body["model"] == "configured:tag"
         assert body["stream"] is False
         assert body["messages"][0]["role"] == "system"
-        assert body["messages"][1] == {"role": "user", "content": "meeting"}
+        assert json.loads(body["messages"][1]["content"])["transcript"] == "meeting"
         return httpx.Response(200, json={"done": True, "message": {"content": " Summary "}})
     adapter = OllamaGenerator("http://local", "configured:tag", 1, httpx.MockTransport(handler))
     assert adapter.generate("meeting") == "Summary"

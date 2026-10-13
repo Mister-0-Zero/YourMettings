@@ -66,6 +66,22 @@ class FolderAssignment(Input):
 class ProcessInput(FolderAssignment):
     title: Name
 
+    detail_level: Literal["brief", "normal", "detailed"] = "normal"
+    focus_areas: list[Literal["tasks", "owners", "deadlines", "decisions", "risks", "disagreements"]] = Field(default_factory=list, max_length=6)
+    additional_instructions: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] = ""
+
+    @model_validator(mode="after")
+    def valid_options(self):
+        if len(set(self.focus_areas)) != len(self.focus_areas):
+            raise ValueError("focus_areas must be unique")
+        if any(ord(c) < 32 and c not in "\n\r\t" for c in self.additional_instructions):
+            raise ValueError("Control characters are not allowed")
+        return self
+
+    def generation_options(self):
+        return {"detail_level": self.detail_level, "focus_areas": sorted(self.focus_areas),
+            "additional_instructions": self.additional_instructions}
+
 
 class CreateProcessInput(ProcessInput, TranscriptInput):
     pass

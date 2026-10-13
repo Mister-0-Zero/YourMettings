@@ -17,7 +17,7 @@ class FakeGenerator:
         self.error, self.started, self.release = error, started, release
         self.calls = 0
 
-    def generate(self, text):
+    def generate(self, text, *, options=None):
         self.calls += 1
         if self.started:
             self.started.set()
