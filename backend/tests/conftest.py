@@ -31,3 +31,24 @@ def database():
     initialize_database(factory)
     yield factory
     engine.dispose()
+
+
+@pytest.fixture
+def client(database):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db.session import get_db, get_session_factory
+    def db_dependency():
+        with database() as db:
+            yield db
+    app.dependency_overrides[get_db] = db_dependency
+    # Lifespan must use the test database, including restart recovery.
+    import app.main as main
+    original_factory = main.get_session_factory
+    main.get_session_factory = lambda: database
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        main.get_session_factory = original_factory
+        app.dependency_overrides.clear()
