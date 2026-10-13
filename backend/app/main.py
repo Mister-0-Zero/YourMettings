@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.db.session import get_session_factory, initialize_database
 from app.api.folders import router as folders_router
 from app.api.transcripts import router as transcripts_router
+from app.api.summaries import router as summaries_router
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ async def lifespan(app):
 app = FastAPI(title="YourMettings", version="0.1.0", lifespan=lifespan)
 app.include_router(transcripts_router, prefix="/api/v1")
 app.include_router(folders_router, prefix="/api/v1")
+app.include_router(summaries_router, prefix="/api/v1")
 
 
 @app.exception_handler(HTTPException)

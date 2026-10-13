@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.db.models import Transcript, Summary
 from app.db.session import TEST_USER_ID, get_db
 from app.schemas import TranscriptInput, TranscriptOut, ProcessInput, ProcessingOut
-from app.integrations.ollama import SummaryGenerator, get_generator
+from app.integrations.ollama import OllamaGenerator, get_generator
 from app.services.processing import processing_response, run_processing
 from sqlalchemy.orm import sessionmaker
 
@@ -82,7 +82,7 @@ def process_transcript(id: UUID, body: ProcessInput, response: Response,
         response.status_code = 200
         return processing_response(db, item)
     validate_folders(db, body.folder_ids)
-    if not settings.ollama_model and generator.__class__.__name__ == "OllamaGenerator":
+    if isinstance(generator, OllamaGenerator) and not generator.model:
         fail(503, "llm_not_configured", "На сервере не задан тег модели.")
     item.processing_status = "summarizing"
     item.processing_title = body.title
