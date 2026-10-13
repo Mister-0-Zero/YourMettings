@@ -48,8 +48,8 @@ idempotent replay, source reading, listing, editing and folder links, then delet
 its summary. Test folders and the locked transcript remain, as required by the API.
 It retains only operation metadata in ignored `build/mobile-smoke.json` for retries.
 
-The real backend check passed through PC loopback. Phone connectivity and native
-TXT selection must still be verified on an attached physical Android device.
+The real backend check passed through PC loopback. The complete transcript flow
+and native TXT selection also passed on a physical HONOR 400 through USB.
 
 ## Data and development limits
 
@@ -75,3 +75,23 @@ Android backup is disabled to keep the temporary local transcript out of backups
 Kotlin incremental compilation is disabled in this project because the standard
 Windows pub cache is on C: and this worktree is on D:. This prevents the confirmed
 cross-drive cache failure; regular compilation remains enabled.
+
+## Tested physical phone over USB
+
+HONOR 400 / Android 16 passed the actual import, draft/operation recovery,
+processing, Markdown, autosave, transcript, folder-link and deletion checks.
+The installed USB test build reaches PC loopback through ADB reverse:
+
+```powershell
+adb reverse tcp:8000 tcp:8000
+./scripts/flutter.ps1 run --dart-define=API_BASE_URL=http://127.0.0.1:8000/api/v1
+```
+
+The cable/ADB connection and running backend are required for this test setup.
+Reapply `adb reverse` after reconnecting the phone. The LAN build still uses
+`192.168.1.100` as documented above; direct LAN connectivity timed out during
+this check and remains to be verified when that network path is available.
+No VPN/Wi-Fi/Firewall configuration was changed.
+
+Wide Markdown tables scroll horizontally. Lower page actions include the system
+navigation inset so they remain reachable on phones with three-button navigation.

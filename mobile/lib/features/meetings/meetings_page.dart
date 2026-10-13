@@ -28,7 +28,12 @@ class MeetingsPage extends StatelessWidget {
       onRefresh: controller.loadFolders,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
         children: [
           Row(
             children: [
@@ -58,7 +63,9 @@ class MeetingsPage extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               child: Text(controller.folderError!),
             ),
-          if (controller.folders.isEmpty && !controller.loadingFolders)
+          if (controller.folders.isEmpty &&
+              !controller.loadingFolders &&
+              controller.folderError == null)
             const Padding(
               padding: EdgeInsets.all(24),
               child: Text(
@@ -265,7 +272,12 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
       onRefresh: () => _load(reset: true),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
         children: [
           const Text(
             'Встречи в этой папке. Вложенные папки открываются отдельно.',

@@ -202,7 +202,12 @@ class _SummaryPageViewState extends State<SummaryPageView> {
               ],
             ),
             body: ListView(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.viewPaddingOf(context).bottom,
+              ),
               children: [
                 if (_busy || editor.saving) const LinearProgressIndicator(),
                 Row(
@@ -261,6 +266,9 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                   MarkdownBody(
                     data: editor.content,
                     selectable: true,
+                    styleSheet: MarkdownStyleSheet.fromTheme(
+                      Theme.of(context),
+                    ).copyWith(tableColumnWidth: const IntrinsicColumnWidth()),
                     imageBuilder: (uri, title, alt) =>
                         Text(alt ?? 'Изображение'),
                   ),
@@ -293,7 +301,12 @@ class _TranscriptViewState extends State<_TranscriptView> {
       builder: (context, snapshot) {
         if (snapshot.hasData) {
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              20,
+              20,
+              20 + MediaQuery.viewPaddingOf(context).bottom,
+            ),
             child: SelectableText(snapshot.data!.text),
           );
         }

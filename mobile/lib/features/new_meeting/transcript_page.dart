@@ -150,7 +150,12 @@ class _TranscriptPageState extends State<TranscriptPage> {
         return Form(
           key: _form,
           child: ListView(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              20,
+              20,
+              20 + MediaQuery.viewPaddingOf(context).bottom,
+            ),
             children: [
               const Text(
                 'Черновик сохраняется на этом устройстве до принятия сервером. Используйте только неконфиденциальные тестовые данные.',
@@ -278,7 +283,12 @@ class ProcessingPanel extends StatelessWidget {
     final failed = controller.status?.phase == ProcessingPhase.error;
     final notStarted = controller.status?.phase == ProcessingPhase.notStarted;
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        20,
+        20,
+        20 + MediaQuery.viewPaddingOf(context).bottom,
+      ),
       children: [
         Icon(
           result != null
@@ -315,6 +325,8 @@ class ProcessingPanel extends StatelessWidget {
           MarkdownBody(
             data: result.content,
             selectable: true,
+            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
+                .copyWith(tableColumnWidth: const IntrinsicColumnWidth()),
             imageBuilder: (uri, title, alt) => Text(alt ?? 'Изображение'),
           ),
           const SizedBox(height: 20),

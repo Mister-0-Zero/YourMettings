@@ -82,7 +82,7 @@ class ApiClient {
     } on TimeoutException {
       throw const ApiException(
         'network_timeout',
-        'Сервер не ответил вовремя. Введённые данные сохранены.',
+        'Сервер не ответил вовремя. Проверьте подключение.',
         isNetwork: true,
       );
     } on http.ClientException {

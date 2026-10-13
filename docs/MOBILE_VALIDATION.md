@@ -36,20 +36,40 @@ failure without global Java/network/security changes. Kotlin incremental
 compilation is disabled locally in the project because Kotlin cache paths cannot
 span the C: pub cache and D: source tree in this setup. Full compilation works.
 
-## Remaining physical-device checks
+## Physical-device verification
 
-No Android phone was detected by ADB during development. LAN health timed out
-from this agent session; this is not evidence of a backend API defect, and the
-owner previously confirmed phone connectivity with VPN disabled.
+HONOR 400 (Android 16) was attached, authorized in ADB and tested with the debug
+application. Installation and cold launch succeeded. The following were checked
+through the actual Android UI:
 
-1. Connect the phone with USB debugging and authorize this PC.
-2. Run from mobile: `./scripts/flutter.ps1 run --dart-define=API_BASE_URL=http://192.168.1.100:8000/api/v1`.
-3. Verify all four sections, native UTF-8 TXT import and paste/edit.
-4. Start generation, navigate away, reopen and verify processing continues.
-5. Close/restart before submission: check draft restoration.
-6. Close/restart after acceptance: check state/summary restoration by transcript ID.
-7. Verify Markdown, source view, autosave/back navigation, folder changes and
-   cancel/confirm deletion. Network loss must preserve pending input/edits.
+- All four tabs; unavailable audio/video actions remain disabled.
+- Native system document picker selects the agent-created UTF-8 TXT; Russian
+  text appears intact in the editor.
+- Draft survives force-stop/restart and APK update.
+- Folder tree and folder selection load from the real backend.
+- One operation is submitted from the phone; its accepted transcript ID is
+  `6132d24d-3dfc-42f0-bf32-c755ecafb673`. The device recovery file retains this ID
+  and has zero source-draft text after acceptance.
+- Force-stop while processing followed by restart restores the operation and
+  retrieves a real LLM summary. Markdown renders on the phone.
+- Title autosave from the phone is confirmed by reading the backend; original
+  transcript view works; changing folder links is confirmed by backend readback.
+- Cancellation keeps the summary; confirmed deletion removes only the generated
+  smoke summary and retains the locked transcript. Test tracking state is cleared.
+- Final buttons are above the system navigation bar; wide Markdown tables use
+  horizontal scrolling instead of breaking words into narrow columns.
+- No FATAL EXCEPTION, unhandled Flutter exception or RenderFlex overflow was
+  found in the checked runtime log.
+
+The phone check used `adb reverse tcp:8000 tcp:8000` and
+`API_BASE_URL=http://127.0.0.1:8000/api/v1`. Direct HTTP to the LAN address
+`192.168.1.100:8000` timed out from the phone during this run. USB transport does
+not verify LAN connectivity, and no VPN, Wi-Fi or Firewall settings were changed.
+
+The phone is left with the tested USB build. The ordinary `app-debug.apk` is built
+for LAN (`192.168.1.100`). Both USB and LAN debug APKs are available in ignored
+`mobile/build/device-check/`. The agent-created TXT and temporary device screenshot
+and hierarchy files were removed. The test transcript remains according to API.
 
 Only debug Android was built. iOS platform files exist but no iOS build/run was
 performed; release signing/distribution and production backend are not validated.
