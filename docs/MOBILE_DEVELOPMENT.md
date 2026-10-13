@@ -78,3 +78,16 @@ Official setup references:
 - [Flutter manual installation](https://docs.flutter.dev/install/manual)
 - [Flutter Android setup](https://docs.flutter.dev/platform-integration/android/setup)
 - [Android Emulator networking](https://developer.android.com/studio/run/emulator-networking)
+
+## Installed toolchain (2026-10-13)
+
+With owner approval, installed Flutter stable 3.47.7 (Dart 3.13.5) in
+`D:\tools\flutter`, Android Studio Rabbit 1 (2026.2.1.8) in
+`D:\tools\android-studio`, and SDK platform/build tools 36 in
+`D:\tools\android-sdk`. Official archive SHA256 checks passed. Flutter uses
+Android Studio's bundled JDK 25.0.3. No emulator is installed.
+
+Flutter and platform-tools were appended to the user's PATH without replacing
+existing entries; ANDROID_HOME points to the agreed SDK. Restart existing
+terminals/VS Code to refresh environment variables. Android toolchain checks
+passed. A physical Android phone was not connected during this check.
