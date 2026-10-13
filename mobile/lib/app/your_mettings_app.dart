@@ -1,3 +1,4 @@
+import 'appearance.dart';
 import '../features/meetings/meetings_page.dart';
 import '../features/new_meeting/meeting_controller.dart';
 import '../features/new_meeting/transcript_page.dart';
@@ -5,32 +6,47 @@ import '../features/new_meeting/transcript_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-class YourMettingsApp extends StatelessWidget {
-  const YourMettingsApp({super.key, this.controller});
+class YourMettingsApp extends StatefulWidget {
+  const YourMettingsApp({super.key, this.controller, this.appearance});
   final MeetingController? controller;
+  final AppearanceController? appearance;
+  @override
+  State<YourMettingsApp> createState() => _YourMettingsAppState();
+}
+
+class _YourMettingsAppState extends State<YourMettingsApp> {
+  late final AppearanceController _appearance =
+      widget.appearance ?? AppearanceController();
+  @override
+  void dispose() {
+    if (widget.appearance == null) _appearance.dispose();
+    super.dispose();
+  }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'YourMettings',
-    debugShowCheckedModeBanner: false,
-    locale: const Locale('ru'),
-    supportedLocales: const [Locale('ru')],
-    localizationsDelegates: GlobalMaterialLocalizations.delegates,
-    theme: ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF365E7D)),
-      scaffoldBackgroundColor: const Color(0xFFF7F9FC),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _appearance,
+    builder: (context, _) => MaterialApp(
+      title: 'YourMettings',
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('ru'),
+      supportedLocales: const [Locale('ru')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      theme: _appearance.theme(Brightness.light),
+      darkTheme: _appearance.theme(Brightness.dark),
+      themeMode: _appearance.themeMode,
+      home: MeetingShell(
+        controller: widget.controller,
+        appearance: _appearance,
       ),
     ),
-    home: MeetingShell(controller: controller),
   );
 }
 
 class MeetingShell extends StatefulWidget {
-  const MeetingShell({super.key, this.controller});
+  const MeetingShell({super.key, this.controller, required this.appearance});
   final MeetingController? controller;
+  final AppearanceController appearance;
 
   @override
   State<MeetingShell> createState() => _MeetingShellState();
@@ -84,33 +100,41 @@ class _MeetingShellState extends State<MeetingShell>
             message:
                 'Шаблоны и дополнительные инструменты будут доступны позже.',
           ),
-          PlaceholderPage(
-            icon: Icons.person_outline,
-            title: 'Тестовый профиль',
-            message: 'Первая версия использует тестового пользователя сервера.',
-          ),
+          AppearancePage(controller: widget.appearance),
         ],
       ),
     ),
     bottomNavigationBar: NavigationBar(
       selectedIndex: _selected,
       onDestinationSelected: (index) => setState(() => _selected = index),
-      destinations: const [
-        NavigationDestination(
-          icon: Icon(Icons.add_circle_outline),
-          label: 'Новая встреча',
+      destinations: [
+        DefaultTextStyle.merge(
+          textAlign: TextAlign.center,
+          child: const NavigationDestination(
+            icon: Icon(Icons.add_circle_outline),
+            label: 'Новая встреча',
+          ),
         ),
-        NavigationDestination(
-          icon: Icon(Icons.folder_outlined),
-          label: 'Встречи',
+        DefaultTextStyle.merge(
+          textAlign: TextAlign.center,
+          child: const NavigationDestination(
+            icon: Icon(Icons.folder_outlined),
+            label: 'Встречи',
+          ),
         ),
-        NavigationDestination(
-          icon: Icon(Icons.tune_outlined),
-          label: 'Инструменты',
+        DefaultTextStyle.merge(
+          textAlign: TextAlign.center,
+          child: const NavigationDestination(
+            icon: Icon(Icons.tune_outlined),
+            label: 'Инструменты',
+          ),
         ),
-        NavigationDestination(
-          icon: Icon(Icons.person_outline),
-          label: 'Профиль',
+        DefaultTextStyle.merge(
+          textAlign: TextAlign.center,
+          child: const NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            label: 'Профиль',
+          ),
         ),
       ],
     ),

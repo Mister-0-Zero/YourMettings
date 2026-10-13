@@ -1,3 +1,5 @@
+import 'app/appearance.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -22,9 +24,14 @@ class _Bootstrap extends StatefulWidget {
 
 class _BootstrapState extends State<_Bootstrap> {
   MeetingController? _controller;
+  AppearanceController? _appearance;
   late Future<MeetingController> _initialization = _initialize();
   Future<MeetingController> _initialize() async {
     final directory = await getApplicationSupportDirectory();
+    _appearance ??= AppearanceController(
+      file: File('${directory.path}/appearance.json'),
+    );
+    await _appearance!.load();
     final controller = MeetingController(
       ApiClient(AppConfig.apiBaseUri()),
       FileRecoveryStore(File('${directory.path}/meeting-recovery.json')),
@@ -42,6 +49,7 @@ class _BootstrapState extends State<_Bootstrap> {
 
   @override
   void dispose() {
+    _appearance?.dispose();
     _controller?.dispose();
     _controller?.api.close();
     super.dispose();
@@ -51,7 +59,12 @@ class _BootstrapState extends State<_Bootstrap> {
   Widget build(BuildContext context) => FutureBuilder<MeetingController>(
     future: _initialization,
     builder: (context, snapshot) {
-      if (snapshot.hasData) return YourMettingsApp(controller: snapshot.data);
+      if (snapshot.hasData) {
+        return YourMettingsApp(
+          controller: snapshot.data,
+          appearance: _appearance,
+        );
+      }
       return MaterialApp(
         home: Scaffold(
           body: Center(
