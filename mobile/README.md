@@ -27,13 +27,14 @@ If multiple devices are available, pass `-d <device-id>` to `flutter run`.
 For Android Emulator, use `http://10.0.2.2:8000/api/v1` when the backend listens
 on the PC loopback interface. No emulator is installed for the first test.
 
-Current milestone: four-section navigation and transcript entry placeholder.
-The next steps add API access, transcript form and recovery; no processing is
-performed by this skeleton. Tools and Profile remain MVP placeholders.
+Current milestone: transcript form, UTF-8 TXT import, folder selection/creation,
+atomic local draft recovery, idempotent submission, polling, restart recovery
+and Markdown result display. Summary browsing/editing follows in the next step.
+Tools and Profile remain MVP placeholders.
 
 ## Data and development limits
 
-Only non-confidential test data is allowed during this MVP. The upcoming local
+Only non-confidential test data is allowed during this MVP. The local
 recovery store keeps a single unfinished form and pending operation metadata,
 not a library of completed meetings. Remove draft text after confirmed server
 acceptance and retain transcript_id for restart recovery.
@@ -46,3 +47,12 @@ It assigns Java's Unix-domain socket temporary directory to the SDK's ASCII
 `tmp/` path for that process only. This avoids the observed loopback connection
 failure without changing global Java options or security settings. Refresh the
 terminal PATH after installation before using the script.
+
+The debug manifest allows HTTP only for the development hosts listed in
+`android/app/src/debug/res/xml/development_network_security.xml`. Release
+cleartext is disabled and application configuration rejects a non-HTTPS URL.
+Android backup is disabled to keep the temporary local transcript out of backups.
+
+Kotlin incremental compilation is disabled in this project because the standard
+Windows pub cache is on C: and this worktree is on D:. This prevents the confirmed
+cross-drive cache failure; regular compilation remains enabled.

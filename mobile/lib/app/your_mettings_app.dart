@@ -1,8 +1,12 @@
+import '../features/new_meeting/meeting_controller.dart';
+import '../features/new_meeting/transcript_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 class YourMettingsApp extends StatelessWidget {
-  const YourMettingsApp({super.key});
+  const YourMettingsApp({super.key, this.controller});
+  final MeetingController? controller;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -19,18 +23,41 @@ class YourMettingsApp extends StatelessWidget {
         border: OutlineInputBorder(),
       ),
     ),
-    home: const MeetingShell(),
+    home: MeetingShell(controller: controller),
   );
 }
 
 class MeetingShell extends StatefulWidget {
-  const MeetingShell({super.key});
+  const MeetingShell({super.key, this.controller});
+  final MeetingController? controller;
 
   @override
   State<MeetingShell> createState() => _MeetingShellState();
 }
 
-class _MeetingShellState extends State<MeetingShell> {
+class _MeetingShellState extends State<MeetingShell>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.controller?.resume();
+    } else {
+      widget.controller?.pause();
+    }
+  }
+
   int _selected = 0;
   static const _titles = ['Новая встреча', 'Встречи', 'Инструменты', 'Профиль'];
 
@@ -40,8 +67,8 @@ class _MeetingShellState extends State<MeetingShell> {
     body: SafeArea(
       child: IndexedStack(
         index: _selected,
-        children: const [
-          NewMeetingPage(),
+        children: [
+          NewMeetingPage(controller: widget.controller),
           PlaceholderPage(
             icon: Icons.folder_open_outlined,
             title: 'Ваши встречи',
@@ -87,7 +114,8 @@ class _MeetingShellState extends State<MeetingShell> {
 }
 
 class NewMeetingPage extends StatelessWidget {
-  const NewMeetingPage({super.key});
+  const NewMeetingPage({super.key, this.controller});
+  final MeetingController? controller;
 
   @override
   Widget build(BuildContext context) => ListView(
@@ -123,7 +151,9 @@ class NewMeetingPage extends StatelessWidget {
                 label: const Text('Загрузить транскрипт'),
                 onPressed: () => Navigator.of(context).push<void>(
                   MaterialPageRoute(
-                    builder: (_) => const TranscriptDraftPage(),
+                    builder: (_) => controller == null
+                        ? const TranscriptDraftPage()
+                        : TranscriptPage(controller: controller!),
                   ),
                 ),
               ),

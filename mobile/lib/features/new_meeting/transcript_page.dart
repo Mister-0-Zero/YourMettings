@@ -1,0 +1,308 @@
+import 'dart:typed_data';
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+
+import '../../models/api_models.dart';
+import '../../services/recovery_store.dart';
+import '../meetings/folder_picker.dart';
+import 'meeting_controller.dart';
+
+class TranscriptPage extends StatefulWidget {
+  const TranscriptPage({super.key, required this.controller});
+  final MeetingController controller;
+  @override
+  State<TranscriptPage> createState() => _TranscriptPageState();
+}
+
+class _TranscriptPageState extends State<TranscriptPage> {
+  final _form = GlobalKey<FormState>();
+  late final _text = TextEditingController(text: widget.controller.draft.text);
+  late final _title = TextEditingController(
+    text: widget.controller.draft.title,
+  );
+  late List<String> _folderIds = [...widget.controller.draft.folderIds];
+  late bool _hadOperation = widget.controller.hasOperation;
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_operationChanged);
+  }
+
+  void _operationChanged() {
+    if (_hadOperation && !widget.controller.hasOperation) {
+      _text.text = widget.controller.draft.text;
+      _title.text = widget.controller.draft.title;
+      _folderIds = [...widget.controller.draft.folderIds];
+    }
+    _hadOperation = widget.controller.hasOperation;
+  }
+
+  String? _inputError;
+  bool _importing = false;
+  void _save() {
+    widget.controller.saveDraft(
+      Draft(text: _text.text, title: _title.text, folderIds: [..._folderIds]),
+    );
+  }
+
+  Future<void> _import() async {
+    setState(() {
+      _importing = true;
+      _inputError = null;
+    });
+    try {
+      final file = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: ['txt'],
+      );
+      if (file == null || !mounted) return;
+      if (!file.name.toLowerCase().endsWith('.txt')) {
+        throw const FormatException('Выберите файл .txt.');
+      }
+      final size = await file.length();
+      if (size != null && size > 400000) {
+        throw const FormatException('Файл превышает допустимый размер текста.');
+      }
+      final buffer = BytesBuilder(copy: false);
+      await for (final chunk in file.readAsByteStream()) {
+        if (buffer.length + chunk.length > 400000) {
+          throw const FormatException(
+            'Файл превышает допустимый размер текста.',
+          );
+        }
+        buffer.add(chunk);
+      }
+      final bytes = buffer.takeBytes();
+      final text = utf8.decode(bytes).replaceFirst(RegExp(r'^\uFEFF'), '');
+      if (text.runes.length > 100000) {
+        throw const FormatException('Максимум 100 000 символов.');
+      }
+      _text.text = text;
+      _save();
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _inputError = e is FormatException
+              ? e.message
+              : 'Не удалось загрузить файл.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  Future<void> _folders() async {
+    final selected = await chooseFolders(
+      context,
+      widget.controller,
+      _folderIds,
+    );
+    if (selected != null && mounted) {
+      setState(() => _folderIds = selected);
+      _save();
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_form.currentState!.validate()) return;
+    if (_folderIds.isEmpty) {
+      setState(() => _inputError = 'Выберите хотя бы одну папку.');
+      return;
+    }
+    setState(() => _inputError = null);
+    await widget.controller.saveDraft(
+      Draft(
+        text: _text.text,
+        title: _title.text.trim(),
+        folderIds: [..._folderIds],
+      ),
+    );
+    if (widget.controller.storageError == null) {
+      await widget.controller.submit();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_operationChanged);
+    _text.dispose();
+    _title.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Транскрипт встречи')),
+    body: AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final controller = widget.controller;
+        if (controller.hasOperation) {
+          return ProcessingPanel(controller: controller);
+        }
+        final folders = flattenFolders(controller.folders);
+        return Form(
+          key: _form,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              const Text(
+                'Черновик сохраняется на этом устройстве до принятия сервером. Используйте только неконфиденциальные тестовые данные.',
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _title,
+                onChanged: (_) => _save(),
+                maxLength: 200,
+                decoration: const InputDecoration(
+                  labelText: 'Название встречи',
+                ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Введите название встречи'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _importing ? null : _import,
+                icon: const Icon(Icons.upload_file),
+                label: const Text('Выбрать файл .txt'),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _text,
+                onChanged: (_) => _save(),
+                minLines: 8,
+                maxLines: 18,
+                decoration: const InputDecoration(
+                  labelText: 'Текст транскрипта',
+                  hintText: 'Вставьте текст или загрузите файл .txt',
+                ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Добавьте текст транскрипта'
+                    : value.runes.length > 100000
+                    ? 'Максимум 100 000 символов'
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: _folders,
+                icon: const Icon(Icons.folder_outlined),
+                label: const Text('Выбрать или создать папки'),
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final id in _folderIds)
+                    Chip(
+                      label: Text(
+                        folders
+                                .where((entry) => entry.folder.id == id)
+                                .firstOrNull
+                                ?.path ??
+                            'Выбранная папка',
+                      ),
+                    ),
+                ],
+              ),
+              if (_inputError != null ||
+                  controller.error != null ||
+                  controller.storageError != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    _inputError ?? controller.storageError ?? controller.error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: controller.working ? null : _submit,
+                icon: const Icon(Icons.auto_awesome_outlined),
+                label: const Text('Обработать'),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class ProcessingPanel extends StatelessWidget {
+  const ProcessingPanel({super.key, required this.controller});
+  final MeetingController controller;
+  @override
+  Widget build(BuildContext context) {
+    final result = controller.result;
+    final failed = controller.status?.phase == ProcessingPhase.error;
+    final notStarted = controller.status?.phase == ProcessingPhase.notStarted;
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Icon(
+          result != null
+              ? Icons.task_alt
+              : failed
+              ? Icons.error_outline
+              : Icons.auto_awesome_outlined,
+          size: 48,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        const SizedBox(height: 20),
+        Text(
+          result != null
+              ? result.title
+              : failed
+              ? 'Ошибка обработки'
+              : notStarted
+              ? 'Обработка не запущена'
+              : 'Обрабатываем встречу',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 12),
+        if (controller.working) const LinearProgressIndicator(),
+        if (result == null && !failed)
+          const Text(
+            'Можно вернуться к другим разделам. Состояние обработки восстановится после перезапуска.',
+          ),
+        if (controller.error != null || controller.storageError != null) ...[
+          const SizedBox(height: 12),
+          Text(controller.storageError ?? controller.error!),
+        ],
+        if (result != null) ...[
+          const SizedBox(height: 20),
+          MarkdownBody(
+            data: result.content,
+            selectable: true,
+            imageBuilder: (uri, title, alt) => Text(alt ?? 'Изображение'),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: controller.working ? null : controller.finish,
+            child: const Text('Готово — новая встреча'),
+          ),
+        ] else ...[
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: controller.working
+                ? null
+                : (failed || notStarted)
+                ? controller.retry
+                : controller.check,
+            child: Text(
+              (failed || notStarted)
+                  ? 'Повторить обработку'
+                  : 'Проверить состояние',
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
