@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+# Local configuration
+.env
+.env.*
+!.env.example
+# Coverage and build output
+.coverage
+htmlcov/
+build/
+dist/
+# Local editor files
+.vscode/
+.idea/
