@@ -30,4 +30,3 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 tzdata==2026.5
 uvicorn==0.54.0
--e git+https://github.com/Mister-0-Zero/YourMettings.git@1e7e2c5665dd3eabb64b2e80a400c6145120c30a#egg=yourmettings_backend&subdirectory=backend

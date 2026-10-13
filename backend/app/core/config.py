@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
@@ -13,8 +14,8 @@ class Settings(BaseSettings):
     test_database_url: str = ""
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = ""
-    llm_timeout_seconds: float = 300
-    max_transcript_chars: int = 100_000
+    llm_timeout_seconds: float = Field(300, gt=0)
+    max_transcript_chars: int = Field(100_000, gt=0)
 
 
 settings = Settings()

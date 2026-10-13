@@ -30,3 +30,19 @@ def test_unique_summary_and_foreign_keys(database):
         db.add(Summary(user_id=TEST_USER_ID, transcript_id=transcript_id, title="two", content="duplicate"))
     with pytest.raises(IntegrityError), database.begin() as db:
         db.add(Folder(user_id=TEST_USER_ID, name="invalid", parent_id=uuid.uuid4()))
+
+
+def test_migration_round_trip(database):
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
+    from app.core.config import settings
+    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    cfg.attributes["database_url"] = settings.test_database_url
+    command.downgrade(cfg, "base")
+    with database() as db:
+        assert "transcripts" not in inspect(db.bind).get_table_names()
+    command.upgrade(cfg, "head")
+    initialize_database(database)
+    with database() as db:
+        assert db.get(User, TEST_USER_ID).email == "test@yourmettings.local"

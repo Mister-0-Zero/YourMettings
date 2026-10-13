@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -74,7 +74,7 @@ class ProcessingError(BaseModel):
 
 class ProcessingOut(BaseModel):
     transcript_id: UUID
-    status: str
+    status: Literal["not_started", "summarizing", "ready", "error"]
     summary_id: UUID | None
     error: ProcessingError | None
 

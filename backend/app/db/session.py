@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from functools import lru_cache
 from uuid import UUID
 
-from sqlalchemy import create_engine, select, update
+from sqlalchemy import create_engine, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 

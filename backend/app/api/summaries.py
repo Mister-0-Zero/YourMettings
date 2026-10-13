@@ -51,6 +51,7 @@ def assign_folders(id: UUID, body: FolderAssignment, db: Session = Depends(get_d
     validate_folders(db, body.folder_ids)
     db.execute(delete(SummaryFolder).where(SummaryFolder.summary_id == item.id))
     db.add_all(SummaryFolder(summary_id=item.id, folder_id=fid) for fid in body.folder_ids)
+    item.updated_at = func.now()
     db.commit()
     return summary_response(db, item)
 
