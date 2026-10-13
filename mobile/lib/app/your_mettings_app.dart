@@ -1,3 +1,4 @@
+import '../features/meetings/meetings_page.dart';
 import '../features/new_meeting/meeting_controller.dart';
 import '../features/new_meeting/transcript_page.dart';
 
@@ -69,11 +70,14 @@ class _MeetingShellState extends State<MeetingShell>
         index: _selected,
         children: [
           NewMeetingPage(controller: widget.controller),
-          PlaceholderPage(
-            icon: Icons.folder_open_outlined,
-            title: 'Ваши встречи',
-            message: 'Здесь появятся папки и результаты обработки встреч.',
-          ),
+          widget.controller == null
+              ? const PlaceholderPage(
+                  icon: Icons.folder_open_outlined,
+                  title: 'Ваши встречи',
+                  message:
+                      'Здесь появятся папки и результаты обработки встреч.',
+                )
+              : MeetingsPage(controller: widget.controller!),
           PlaceholderPage(
             icon: Icons.tune_outlined,
             title: 'Инструменты',
