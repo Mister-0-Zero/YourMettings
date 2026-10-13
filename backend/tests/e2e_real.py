@@ -2,7 +2,7 @@
 
 Usage: python tests/e2e_real.py http://192.168.1.100:8000
 Creates a small labelled transcript and folder in the development DB;
-deletes its summary at the end. Transcript and folder intentionally remain.
+deletes its summary and unused transcript at the end. Folder remains.
 """
 import sys
 import time
@@ -46,10 +46,8 @@ def run(base):
         checked(client.patch(f"{prefix}/summaries/{sid}", json={"title": "E2E edited", "content": "Проверенная ручная правка"}), 200)
         assert checked(client.get(f"{prefix}/summaries", params={"folder_id": folder["id"]}), 200)["total"] == 1
         checked(client.delete(f"{prefix}/summaries/{sid}"), 204)
-        remaining = checked(client.get(f"{prefix}/transcripts/{tid}"), 200)
-        assert remaining["text"] == source and remaining["is_locked"] is True
-        checked(client.patch(f"{prefix}/transcripts/{tid}", json={"text": "edit"}), 409)
-        print("PASS: real HTTP -> PostgreSQL -> Ollama -> summary -> edit -> delete; transcript remains locked.")
+        checked(client.get(f"{prefix}/transcripts/{tid}"), 404)
+        print("PASS: real HTTP -> PostgreSQL -> Ollama -> summary -> edit -> delete; unused transcript removed.")
 
 
 if __name__ == "__main__":

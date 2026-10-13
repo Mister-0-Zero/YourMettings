@@ -16,6 +16,7 @@ from app.db.session import TEST_USER_ID, get_db
 from app.schemas import TranscriptInput, TranscriptOut, ProcessInput, ProcessingOut, CreateProcessInput
 from app.integrations.ollama import OllamaGenerator, get_generator
 from app.services.processing import processing_response, run_processing
+from app.services.deletion import lock_user_data
 from sqlalchemy.orm import sessionmaker
 
 router = APIRouter(prefix="/transcripts", tags=["transcripts"])
@@ -91,6 +92,7 @@ def create_and_process(body: CreateProcessInput, tasks: BackgroundTasks,
     idempotency_key: Annotated[str | None, Header(min_length=1, max_length=128)] = None,
     db: Session = Depends(get_db), generator=Depends(get_generator)):
     check_size(body.text)
+    lock_user_data(db)
     source_hash = hashlib.sha256(body.text.encode("utf-8")).hexdigest()
     parameters = {"text": body.text, "title": body.title,
         "folder_ids": sorted(str(id) for id in body.folder_ids)}
@@ -141,6 +143,7 @@ def edit_transcript(id: UUID, body: TranscriptInput, db: Session = Depends(get_d
 @router.post("/{id}/process", response_model=ProcessingOut, status_code=202)
 def process_transcript(id: UUID, body: ProcessInput, response: Response,
     tasks: BackgroundTasks, db: Session = Depends(get_db), generator=Depends(get_generator)):
+    lock_user_data(db)
     item = owned_transcript(db, id, lock=True)
     if item.processing_status == "summarizing":
         return processing_response(db, item)

@@ -5,7 +5,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import owned_folder, owned_summary, owned_transcript, validate_folders
-from app.db.models import Summary, SummaryFolder
+from app.db.models import Summary, SummaryFolder, Transcript
+from app.services.deletion import cleanup_transcript, lock_user_data
 from app.db.session import TEST_USER_ID, get_db
 from app.schemas import FolderAssignment, SummaryEdit, SummaryList, SummaryOut
 
@@ -58,12 +59,12 @@ def assign_folders(id: UUID, body: FolderAssignment, db: Session = Depends(get_d
 
 @router.delete("/{id}", status_code=204)
 def delete_summary(id: UUID, db: Session = Depends(get_db)):
+    lock_user_data(db)
     initial = owned_summary(db, id)
     # Same lock order as generation: transcript first, summary second.
-    transcript = owned_transcript(db, initial.transcript_id, lock=True)
+    transcript = db.scalar(select(Transcript).where(Transcript.id == initial.transcript_id).with_for_update())
     item = owned_summary(db, id, lock=True)
     db.delete(item)
-    transcript.processing_status = "not_started"
-    transcript.error_code = None
+    cleanup_transcript(db, transcript)
     db.commit()
     return Response(status_code=204)

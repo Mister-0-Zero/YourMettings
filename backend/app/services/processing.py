@@ -8,6 +8,7 @@ from app.db.models import Summary, SummaryFolder, Transcript
 from app.db.session import TEST_USER_ID
 from app.integrations.ollama import LLMError, SummaryGenerator
 from app.schemas import ProcessingError, ProcessingOut
+from app.services.deletion import lock_user_data
 
 logger = logging.getLogger(__name__)
 ERROR_MESSAGES = {
@@ -43,6 +44,7 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
         if not isinstance(content, str) or not content.strip():
             raise LLMError("llm_invalid_response")
         with factory.begin() as db:
+            lock_user_data(db)
             item = db.scalar(select(Transcript).where(Transcript.id == transcript_id).with_for_update())
             if item.processing_attempt != attempt or item.processing_status != "summarizing":
                 return

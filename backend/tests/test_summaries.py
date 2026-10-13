@@ -36,11 +36,9 @@ def test_summary_edit_list_assign_and_delete(client):
     assert client.get("/api/v1/summaries", params={"limit": 1, "offset": 1}).json()["items"] == []
     assert client.delete(f"/api/v1/summaries/{sid}").status_code == 204
     assert client.get(f"/api/v1/summaries/{sid}").status_code == 404
-    assert client.get(f"/api/v1/transcripts/{tid}").status_code == 200
-    assert client.patch(f"/api/v1/transcripts/{tid}", json={"text": "edit"}).status_code == 409
-    assert client.get(f"/api/v1/transcripts/{tid}/processing").json()["status"] == "not_started"
-    client.post(f"/api/v1/transcripts/{tid}/process", json=body)
-    assert client.get(f"/api/v1/transcripts/{tid}/processing").json()["summary_id"] != sid
+    assert client.get(f"/api/v1/transcripts/{tid}").status_code == 404
+    assert client.patch(f"/api/v1/transcripts/{tid}", json={"text": "edit"}).status_code == 404
+    assert client.get(f"/api/v1/transcripts/{tid}/processing").status_code == 404
 
 
 def test_summary_validation_and_foreign_folders(client, database):
