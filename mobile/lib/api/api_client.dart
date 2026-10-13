@@ -176,6 +176,14 @@ class ApiClient {
     await _request('DELETE', 'summaries/$id');
   }
 
+  Future<void> deleteFolder(String id) async {
+    await _request(
+      'DELETE',
+      'folders/$id',
+      query: {'mode': 'with_contents', 'confirm': 'true'},
+    );
+  }
+
   Future<List<Folder>> folders() async {
     final json = await _request('GET', 'folders');
     return (json['items'] as List)

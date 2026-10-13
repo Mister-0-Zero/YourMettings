@@ -83,6 +83,45 @@ class MeetingController extends ChangeNotifier {
     await loadFolders();
   }
 
+  Future<void> deleteFolder(Folder folder) async {
+    if (working) {
+      throw const ApiException(
+        'operation_busy',
+        'Дождитесь завершения текущего запроса и повторите удаление.',
+      );
+    }
+    final removed = flattenFolders([folder])
+        .map((entry) => entry.folder.id)
+        .toSet();
+    await api.deleteFolder(
+      folder.id,
+    ); // Update local state only after confirmed 204.
+    final pending = recovery.pending;
+    final original = pending?.draft ?? draft;
+    if (original.folderIds.any(removed.contains)) {
+      _timer?.cancel();
+      recovery = RecoveryState(
+        draft: Draft(
+          text: original.text,
+          title: original.title,
+          folderIds: original.folderIds
+              .where((id) => !removed.contains(id))
+              .toList(),
+          options: original.options,
+        ),
+        operation: recovery.operation,
+      ); // An intentionally deleted ambiguous operation must never be replayed.
+      try {
+        await _persist();
+      } catch (_) {}
+    }
+    await loadFolders();
+    if (recovery.operation != null) {
+      await check(); // GET only; 404 clears tracking.
+    }
+    _notify();
+  }
+
   Future<void> submit() async {
     if (working || recovery.operation != null) return;
     if (recovery.pending == null) {

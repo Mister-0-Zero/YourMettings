@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../api/api_client.dart';
 import '../../models/api_models.dart';
 import '../new_meeting/meeting_controller.dart';
 import 'folder_picker.dart';
@@ -101,6 +102,16 @@ class _FolderNode extends StatefulWidget {
 class _FolderNodeState extends State<_FolderNode> {
   bool _busy = false;
   Future<void> _action(String action) async {
+    if (action == 'delete') {
+      setState(() => _busy = true);
+      await deleteFolderWithConfirmation(
+        context,
+        widget.controller,
+        widget.folder,
+      );
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
     final name = await folderNameDialog(
       context,
       initial: action == 'rename' ? widget.folder.name : null,
@@ -157,6 +168,7 @@ class _FolderNodeState extends State<_FolderNode> {
                 child: Text('Создать вложенную папку'),
               ),
               PopupMenuItem(value: 'rename', child: Text('Переименовать')),
+              PopupMenuItem(value: 'delete', child: Text('Удалить папку')),
             ],
           ),
       ],
@@ -215,6 +227,7 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
   final List<MeetingSummary> _items = [];
   int _total = 0;
   bool _loading = false;
+  bool _deleting = false;
   String? _error;
   @override
   void initState() {
@@ -233,7 +246,7 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
         widget.folder.id,
         offset: reset ? 0 : _items.length,
       );
-      if (!mounted) return;
+      if (!mounted || !context.mounted) return;
       setState(() {
         if (reset) _items.clear();
         _items.addAll(page.items);
@@ -259,8 +272,29 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(widget.folder.name),
+      title: Text(
+        widget.folder.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       actions: [
+        IconButton(
+          tooltip: 'Удалить папку',
+          icon: const Icon(Icons.delete_outline),
+          onPressed: _loading || _deleting
+              ? null
+              : () async {
+                  setState(() => _deleting = true);
+                  final deleted = await deleteFolderWithConfirmation(
+                    context,
+                    widget.controller,
+                    widget.folder,
+                  );
+                  if (!mounted || !context.mounted) return;
+                  setState(() => _deleting = false);
+                  if (deleted) Navigator.of(context).pop();
+                },
+        ),
         IconButton(
           onPressed: _loading ? null : () => _load(reset: true),
           icon: const Icon(Icons.refresh),
@@ -317,5 +351,47 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
   String _date(DateTime value) {
     final date = value.toLocal();
     return '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}';
+  }
+}
+
+Future<bool> deleteFolderWithConfirmation(
+  BuildContext context,
+  MeetingController controller,
+  Folder folder,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Удалить папку?'),
+      content: Text(
+        'Будет удалена папка «${folder.name}» со всеми вложенными папками и содержимым. '
+        'Результаты встреч, которые также находятся в других папках, сохранятся. '
+        'Неиспользуемые исходные транскрипты также могут быть удалены.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Удалить'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return false;
+  try {
+    await controller.deleteFolder(folder);
+    return true;
+  } catch (e) {
+    final message = e is ApiException && e.code == 'folder_processing'
+        ? 'В этой папке или вложенных папках ещё обрабатывается встреча. Дождитесь завершения обработки и повторите удаление.'
+        : e.toString();
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    }
+    return false;
   }
 }

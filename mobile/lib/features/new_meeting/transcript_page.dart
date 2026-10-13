@@ -42,6 +42,9 @@ class _TranscriptPageState extends State<TranscriptPage> {
       _options = widget.controller.draft.options;
       _instructions.text = _options.additionalInstructions;
     }
+    if (!widget.controller.hasOperation) {
+      _folderIds = [...widget.controller.draft.folderIds];
+    }
     _hadOperation = widget.controller.hasOperation;
   }
 
