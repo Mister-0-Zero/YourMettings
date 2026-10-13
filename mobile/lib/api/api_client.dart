@@ -1,3 +1,5 @@
+import '../models/processing_options.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -104,11 +106,17 @@ class ApiClient {
     required String title,
     required List<String> folderIds,
     required String idempotencyKey,
+    ProcessingOptions options = const ProcessingOptions(),
   }) async => ProcessingStatus.fromJson(
     await _request(
       'POST',
       'transcripts/process',
-      body: {'text': text, 'title': title, 'folder_ids': folderIds},
+      body: {
+        'text': text,
+        'title': title,
+        'folder_ids': folderIds,
+        ...options.toJson(),
+      },
       idempotencyKey: idempotencyKey,
     ),
   );
@@ -119,12 +127,13 @@ class ApiClient {
   Future<ProcessingStatus> retryProcessing(
     String id,
     String title,
-    List<String> folderIds,
-  ) async => ProcessingStatus.fromJson(
+    List<String> folderIds, {
+    ProcessingOptions options = const ProcessingOptions(),
+  }) async => ProcessingStatus.fromJson(
     await _request(
       'POST',
       'transcripts/$id/process',
-      body: {'title': title, 'folder_ids': folderIds},
+      body: {'title': title, 'folder_ids': folderIds, ...options.toJson()},
     ),
   );
   Future<Transcript> transcript(String id) async =>

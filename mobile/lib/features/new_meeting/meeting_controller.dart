@@ -115,12 +115,14 @@ class MeetingController extends ChangeNotifier {
           title: pending.draft.title,
           folderIds: pending.draft.folderIds,
           idempotencyKey: pending.key,
+          options: pending.draft.options,
         );
         recovery = RecoveryState(
           operation: AcceptedOperation(
             status!.transcriptId,
             pending.draft.title,
             pending.draft.folderIds,
+            pending.draft.options,
           ),
         );
         await _persist(); // Atomically retain ID and remove accepted source draft.
@@ -175,6 +177,7 @@ class MeetingController extends ChangeNotifier {
         operation.id,
         operation.title,
         operation.folderIds,
+        options: operation.options,
       );
       _interval = 2;
     } catch (e) {

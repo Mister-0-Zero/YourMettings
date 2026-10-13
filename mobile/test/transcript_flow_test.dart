@@ -26,6 +26,9 @@ void main() {
               'text': 'Тестовый ввод',
               'title': 'План',
               'folder_ids': ['f1'],
+              'detail_level': 'normal',
+              'focus_areas': [],
+              'additional_instructions': '',
             });
             expect(request.headers['Idempotency-Key'], isNotEmpty);
             return http.Response(

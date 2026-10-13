@@ -1,18 +1,32 @@
+import '../models/processing_options.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
 import '../models/api_models.dart';
 
 class Draft {
-  Draft({this.text = '', this.title = '', this.folderIds = const []});
+  Draft({
+    this.text = '',
+    this.title = '',
+    this.folderIds = const [],
+    this.options = const ProcessingOptions(),
+  });
   final String text;
   final String title;
   final List<String> folderIds;
-  Json toJson() => {'text': text, 'title': title, 'folder_ids': folderIds};
+  final ProcessingOptions options;
+  Json toJson() => {
+    'text': text,
+    'title': title,
+    'folder_ids': folderIds,
+    'options': options.toJson(),
+  };
   factory Draft.fromJson(Json json) => Draft(
     text: json['text'] as String,
     title: json['title'] as String,
     folderIds: (json['folder_ids'] as List).cast<String>(),
+    options: ProcessingOptions.fromJson((json['options'] as Json?) ?? {}),
   );
 }
 
@@ -28,15 +42,27 @@ class PendingRequest {
 }
 
 class AcceptedOperation {
-  AcceptedOperation(this.id, this.title, this.folderIds);
+  AcceptedOperation(
+    this.id,
+    this.title,
+    this.folderIds, [
+    this.options = const ProcessingOptions(),
+  ]);
   final String id;
   final String title;
   final List<String> folderIds;
-  Json toJson() => {'id': id, 'title': title, 'folder_ids': folderIds};
+  final ProcessingOptions options;
+  Json toJson() => {
+    'id': id,
+    'title': title,
+    'folder_ids': folderIds,
+    'options': options.toJson(),
+  };
   factory AcceptedOperation.fromJson(Json json) => AcceptedOperation(
     json['id'] as String,
     json['title'] as String,
     (json['folder_ids'] as List).cast<String>(),
+    ProcessingOptions.fromJson((json['options'] as Json?) ?? {}),
   );
 }
 

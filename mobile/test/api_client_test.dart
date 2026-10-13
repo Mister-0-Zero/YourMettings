@@ -54,6 +54,9 @@ void main() {
       'text': 'Иван: решение',
       'title': 'План',
       'folder_ids': ['f1'],
+      'detail_level': 'normal',
+      'focus_areas': [],
+      'additional_instructions': '',
     });
   });
 
@@ -65,6 +68,9 @@ void main() {
         expect(jsonDecode(request.body), {
           'title': 'План',
           'folder_ids': ['f1'],
+          'detail_level': 'normal',
+          'focus_areas': [],
+          'additional_instructions': '',
         });
         expect(request.headers.containsKey('Idempotency-Key'), isFalse);
         return jsonResponse(status(), 202);
