@@ -131,6 +131,7 @@ class MeetingController extends ChangeNotifier {
       if (status!.phase == ProcessingPhase.ready) {
         result = await api.summary(status!.summaryId!);
       }
+      if (status!.phase != ProcessingPhase.ready) result = null;
       _failures = 0;
       if (status!.phase == ProcessingPhase.error) {
         error = status!.errorMessage ?? 'Обработка завершилась с ошибкой.';
@@ -187,7 +188,12 @@ class MeetingController extends ChangeNotifier {
   }
 
   Future<void> finish() async {
-    if (working || result == null) return;
+    if (working ||
+        (result == null &&
+            status?.phase != ProcessingPhase.error &&
+            status?.phase != ProcessingPhase.notStarted)) {
+      return;
+    }
     _timer?.cancel();
     final previous = recovery;
     recovery = RecoveryState();

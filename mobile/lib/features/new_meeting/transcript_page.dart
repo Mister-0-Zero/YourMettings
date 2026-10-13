@@ -1,3 +1,5 @@
+import '../meetings/summary_page.dart';
+
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -237,6 +239,39 @@ class _TranscriptPageState extends State<TranscriptPage> {
 class ProcessingPanel extends StatelessWidget {
   const ProcessingPanel({super.key, required this.controller});
   final MeetingController controller;
+  Future<void> _openResult(BuildContext context, MeetingSummary summary) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            SummaryPageView(controller: controller, summary: summary),
+      ),
+    );
+    await controller.check();
+  }
+
+  Future<void> _dismiss(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Начать другую встречу?'),
+        content: const Text(
+          'Транскрипт останется на сервере, но приложение перестанет отслеживать эту обработку.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Новая встреча'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.finish();
+  }
+
   @override
   Widget build(BuildContext context) {
     final result = controller.result;
@@ -283,6 +318,12 @@ class ProcessingPanel extends StatelessWidget {
             imageBuilder: (uri, title, alt) => Text(alt ?? 'Изображение'),
           ),
           const SizedBox(height: 20),
+          OutlinedButton(
+            onPressed: controller.working
+                ? null
+                : () => _openResult(context, result),
+            child: const Text('Открыть и редактировать summary'),
+          ),
           FilledButton(
             onPressed: controller.working ? null : controller.finish,
             child: const Text('Готово — новая встреча'),
@@ -301,6 +342,11 @@ class ProcessingPanel extends StatelessWidget {
                   : 'Проверить состояние',
             ),
           ),
+          if (failed || notStarted)
+            TextButton(
+              onPressed: controller.working ? null : () => _dismiss(context),
+              child: const Text('Начать другую встречу'),
+            ),
         ],
       ],
     );

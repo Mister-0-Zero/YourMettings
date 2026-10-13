@@ -27,10 +27,29 @@ If multiple devices are available, pass `-d <device-id>` to `flutter run`.
 For Android Emulator, use `http://10.0.2.2:8000/api/v1` when the backend listens
 on the PC loopback interface. No emulator is installed for the first test.
 
-Current milestone: transcript form, UTF-8 TXT import, folder selection/creation,
-atomic local draft recovery, idempotent submission, polling, restart recovery
-and Markdown result display. Summary browsing/editing follows in the next step.
-Tools and Profile remain MVP placeholders.
+Implemented MVP: four sections, UTF-8 TXT import/paste/edit, folder selection,
+atomic local draft recovery, idempotent submission, polling/restart recovery,
+Markdown summary, nested folders, paginated lists, transcript view, title/content
+editor with 800 ms autosave and save-on-exit, folder links and confirmed deletion.
+Tools and Profile remain placeholders. One active processing operation is tracked
+at a time; navigation remains available during generation.
+
+## Explicit real-backend verification
+
+Run from `mobile/` only when the backend is available:
+
+```powershell
+dart run tool/backend_smoke.dart http://127.0.0.1:8000/api/v1
+```
+
+This opt-in check uses the mobile API client. It creates/reuses the `Mobile smoke`
+root and child folder and a short non-confidential transcript, verifies generation,
+idempotent replay, source reading, listing, editing and folder links, then deletes
+its summary. Test folders and the locked transcript remain, as required by the API.
+It retains only operation metadata in ignored `build/mobile-smoke.json` for retries.
+
+The real backend check passed through PC loopback. Phone connectivity and native
+TXT selection must still be verified on an attached physical Android device.
 
 ## Data and development limits
 

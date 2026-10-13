@@ -80,10 +80,12 @@ class MeetingsPage extends StatelessWidget {
 class _FolderNode extends StatefulWidget {
   const _FolderNode({
     super.key,
+    this.depth = 0,
     required this.folder,
     required this.controller,
   });
   final Folder folder;
+  final int depth;
   final MeetingController controller;
   @override
   State<_FolderNode> createState() => _FolderNodeState();
@@ -156,7 +158,11 @@ class _FolderNodeState extends State<_FolderNode> {
       return Card(
         child: ListTile(
           leading: const Icon(Icons.folder_outlined),
-          title: Text(widget.folder.name),
+          title: Text(
+            widget.folder.name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
           onTap: _open,
           trailing: actions,
         ),
@@ -165,14 +171,19 @@ class _FolderNodeState extends State<_FolderNode> {
     return Card(
       child: ExpansionTile(
         leading: const Icon(Icons.folder_outlined),
-        title: Text(widget.folder.name),
+        title: Text(
+          widget.folder.name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
         subtitle: actions,
-        childrenPadding: const EdgeInsets.only(left: 12),
+        childrenPadding: EdgeInsets.only(left: widget.depth < 3 ? 12 : 0),
         children: [
           for (final child in widget.folder.children)
             _FolderNode(
               key: ValueKey(child.id),
               folder: child,
+              depth: widget.depth + 1,
               controller: widget.controller,
             ),
         ],
