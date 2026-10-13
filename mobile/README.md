@@ -31,7 +31,7 @@ Implemented MVP: four sections, UTF-8 TXT import/paste/edit, folder selection,
 atomic local draft recovery, idempotent submission, polling/restart recovery,
 Markdown summary, nested folders, paginated lists, transcript view, title/content
 editor with 800 ms autosave and save-on-exit, folder links and confirmed deletion.
-Tools and Profile remain placeholders. One active processing operation is tracked
+Tools remains a placeholder; Profile provides persisted system/light/dark theme and blue/green accent settings. One active processing operation is tracked
 at a time; navigation remains available during generation.
 
 ## Explicit real-backend verification
@@ -42,11 +42,14 @@ Run from `mobile/` only when the backend is available:
 dart run tool/backend_smoke.dart http://127.0.0.1:8000/api/v1
 ```
 
-This opt-in check uses the mobile API client. It creates/reuses the `Mobile smoke`
-root and child folder and a short non-confidential transcript, verifies generation,
-idempotent replay, source reading, listing, editing and folder links, then deletes
-its summary. Test folders and the locked transcript remain, as required by the API.
-It retains only operation metadata in ignored `build/mobile-smoke.json` for retries.
+This opt-in check uses the mobile API client and creates fresh, uniquely named
+non-confidential test folders and a transcript. It verifies Qwen options, stable
+replay, changed-payload rejection, polling, Markdown edits, shared folder links,
+folder tree deletion and server-side cleanup of unused transcripts. All objects
+created by a successful run are deleted. It never replays a key after intentional
+deletion. On failure, own fixture IDs remain in ignored
+`build/mobile-smoke-<run>.json` for inspection; do not blindly resubmit deleted
+operations. No existing user folders are deleted.
 
 The real backend check passed through PC loopback. The complete transcript flow
 and native TXT selection also passed on a physical HONOR 400 through USB.
@@ -95,3 +98,22 @@ No VPN/Wi-Fi/Firewall configuration was changed.
 
 Wide Markdown tables scroll horizontally. Lower page actions include the system
 navigation inset so they remain reachable on phones with three-button navigation.
+
+
+## MVP refinement (2026-10-14)
+
+- New meeting header and wrapped navigation label use semantic centering.
+- The transcript form has a collapsed processing-options block: brief/normal/
+  detailed, six focus chips, and optional instructions (2000 characters).
+  Options persist with drafts and accepted-operation metadata. Network replay
+  retains the original payload and key; explicit generation retry uses the known ID.
+- One Edit action opens the Markdown editor; the top checkmark flushes pending
+  autosave and returns to formatted view. Failed saves keep the editor open.
+- Folder deletion requires confirmation and uses `mode=with_contents&confirm=true`.
+  Active-generation conflicts keep the tree intact and explain when to retry.
+- The backend decides transcript cleanup. Confirmed deletion clears operation
+  tracking; a missing accepted ID is checked via GET and never recreated via POST.
+- Profile has one shared Material 3 UI for theme mode and blue/green accents.
+
+See `../docs/MOBILE_VALIDATION.md` for the distinction between automated, real API
+and actual HONOR checks, including the USB transport limitation.

@@ -1,4 +1,91 @@
-# Mobile validation
+# Mobile refinement validation
+
+Completed: 2026-10-14. Branch `mobile`, existing separate worktree
+`D:\programming\VSCode\project\YourMettings-mobile`.
+The API contract was copied from `origin/backend` at `5ecb749`; the backend branch
+was not merged. Backend code, PostgreSQL configuration and migrations were not edited.
+The original verification record below predates the new cleanup semantics.
+
+## Automated checks
+
+- Flutter analyzer: no issues. All 41 tests passed.
+- Theme preferences persist through real file storage; navigation alignment tested
+  at 320/390/800 px, both themes, increased text scaling and system insets.
+- Legacy recovery files load default processing options. Draft, pending request
+  and accepted operation preserve options. Lost-response replay keeps payload/key;
+  corrected validation rejection permits a new operation key. Retry uses known ID.
+- Direct Edit -> checkmark -> updated Markdown, save failure retention, autosave,
+  serialized saves and save-on-exit passed.
+- Folder cancellation sends no DELETE; successful response refreshes the tree;
+  folder_processing 409 preserves it. The request has the exact query and no body.
+- Intentional deletion cancels ambiguous replay; accepted-ID 404 clears tracking
+  with no creation POST. Source text/settings are preserved for editable drafts.
+- Structured Markdown plus an oversized table renders at 320 px in both themes.
+  The test drags the horizontal scrollable and verifies its scroll extent/offset.
+- Android debug builds succeeded for both USB and LAN base URLs.
+
+## Real backend (2026-10-13)
+
+The updated Dart smoke client passed against the running backend using only fresh
+agent-owned fixtures. Actual Qwen generation accepted detailed processing, four
+focus areas and additional instructions. Identical key/payload returned the same
+transcript ID; changed options with the same key returned 409. Polling reached ready.
+Deletion during active generation returned 409 folder_processing. PATCH/readback,
+source reading, shared summary outside a deleted tree, tree removal, final summary
+deletion and 404 for the unused transcript/processing passed. Own fixtures were
+removed after success. No user-owned folder was deleted.
+
+## Actual HONOR 400 / Android 16 (2026-10-14)
+
+The updated debug APK was installed preserving app data, and tested through actual
+Android UI over USB with `adb reverse tcp:8000 tcp:8000`.
+
+- Centered header and two-line New meeting navigation label visually checked.
+  Light/dark and blue/green selections checked; light/blue survived cold restart.
+  Original user preference dark/green was restored and verified after restart.
+- Own draft text, detailed mode, tasks/owners/deadlines/risks and additional
+  instruction were entered through the form. Cold restart restored visible input
+  and options. Accepted recovery retained transcript_id/options and zero draft text.
+- A real operation was submitted from the phone, the app was stopped while
+  processing, and restart restored the ID and obtained ready/actual Qwen summary.
+- One Edit tap entered the editor with a top checkmark. Temporarily removing only
+  the agent's ADB reverse mapping caused a save failure. Both checkmark and Back
+  kept the editor and unsaved text. Restoring reverse and confirming saved the title,
+  verified by reading backend, and returned to formatted Markdown.
+- Headings, paragraphs, bold task blocks and bullet lists were readable in light
+  and dark. A wide Markdown table added to this own result scrolled horizontally;
+  second-column text became visible after the swipe, without layout overflow.
+  Numbered lists also passed the automated layout test.
+- Summary deletion dialog used the new neutral cleanup explanation. Cancel kept
+  the object. Confirm updated the folder list to empty and cleared local tracking.
+  Backend GET summary, transcript and processing each returned 404.
+- Folder dialog explained recursive deletion and externally linked summaries.
+  Cancel retained the tree; confirm removed the own parent and child and returned
+  to the refreshed folder tree. The phone folder tree was empty of summaries at
+  this point; deletion with shared content and generation 409 was covered above
+  by real API verification and by widget tests.
+- Current app-process log contained no FATAL EXCEPTION, unhandled exception or
+  RenderFlex overflow matching the checked patterns. Temporary phone screenshots
+  and hierarchy were removed after verification; local evidence stays ignored.
+
+Own phone test transcript: `ae7a3c3a-88ca-4fc7-a930-be51960e5bbc`;
+summary: `e9b7f8cf-e021-4576-937e-31b3e380cc69`. Both were deleted deliberately.
+Own root `c5bedd5f-3280-49a6-86f0-aa6d8b798ce1` and its new child were deleted.
+The phone is left with the tested USB build, an empty test draft and dark/green
+preferences. Unrelated server objects were preserved.
+
+## Artifacts and limits
+
+`mobile/build/device-check/YourMettings-USB-debug.apk` is the tested USB build.
+`mobile/build/device-check/YourMettings-LAN-debug.apk` and ordinary `app-debug.apk`
+use `http://192.168.1.100:8000/api/v1`. These artifacts are ignored by Git.
+LAN connectivity was not verified in this refinement; USB requires the connected
+PC, reverse mapping and running backend. No VPN, Wi-Fi or firewall changes.
+Only Android debug was built; iOS, signed release and production were not tested.
+
+---
+
+# Initial MVP validation — historical (2026-10-13)
 
 Date: 2026-10-13. Branch: `mobile`, separate worktree
 `D:\programming\VSCode\project\YourMettings-mobile`.

@@ -3,166 +3,150 @@ import 'dart:io';
 
 import 'package:your_mettings/api/api_client.dart';
 import 'package:your_mettings/models/api_models.dart';
+import 'package:your_mettings/models/processing_options.dart';
 
-// Explicit real-backend check: creates/reuses two test folders and one transcript.
-// Deletes its own summary after verification; the API retains folders/transcript.
+// Own non-confidential fixtures only. Never replay a key after intentional deletion.
 Future<void> main(List<String> arguments) async {
-  final baseValue = arguments.isEmpty
+  final value = arguments.isEmpty
       ? 'http://127.0.0.1:8000/api/v1/'
       : arguments.single;
-  final base = Uri.parse(baseValue.endsWith('/') ? baseValue : '$baseValue/');
-  final api = ApiClient(base);
-  final metadataFile = File('build/mobile-smoke.json');
-  await metadataFile.parent.create(recursive: true);
-  Map<String, dynamic> metadata = {};
-  if (await metadataFile.exists()) {
-    metadata =
-        jsonDecode(await metadataFile.readAsString()) as Map<String, dynamic>;
-    if (metadata['base_url'] != base.toString()) metadata = {};
+  final api = ApiClient(Uri.parse(value.endsWith('/') ? value : '$value/'));
+  final run = DateTime.now().microsecondsSinceEpoch;
+  final metadata = <String, dynamic>{'run': run};
+  final file = File('build/mobile-smoke-$run.json');
+  Future<void> checkpoint() async {
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(metadata), flush: true);
   }
+
   void verify(bool condition, String message) {
     if (!condition) throw StateError(message);
   }
 
+  Future<void> missing(Future<Object?> Function() read) async {
+    try {
+      await read();
+      throw StateError('Expected 404');
+    } on ApiException catch (e) {
+      verify(e.statusCode == 404, 'Expected 404: $e');
+    }
+  }
+
   try {
-    var folders = flattenFolders(await api.folders());
-    var root = folders
-        .where(
-          (e) => e.folder.parentId == null && e.folder.name == 'Mobile smoke',
-        )
-        .firstOrNull
-        ?.folder;
-    root ??= await api.createFolder('Mobile smoke');
-    folders = flattenFolders(await api.folders());
-    var child = folders
-        .where(
-          (e) =>
-              e.folder.parentId == root!.id &&
-              e.folder.name == 'Mobile smoke child',
-        )
-        .firstOrNull
-        ?.folder;
-    child ??= await api.createFolder('Mobile smoke child', parentId: root.id);
-    final renamed = await api.renameFolder(
-      child.id,
-      'Mobile smoke child checked',
-    );
-    verify(
-      renamed.name == 'Mobile smoke child checked',
-      'Folder rename failed',
-    );
-    await api.renameFolder(child.id, 'Mobile smoke child');
+    final root = await api.createFolder('Mobile check $run');
+    metadata['root_id'] = root.id;
+    await checkpoint();
+    final child = await api.createFolder('Child', parentId: root.id);
+    metadata['child_id'] = child.id;
+    final outside = await api.createFolder('Mobile outside $run');
+    metadata['outside_id'] = outside.id;
+    await checkpoint();
     const text =
-        'Иван: Выпускаем тестовую версию в пятницу. Мария: Я проверю Android-приложение до четверга. Иван: Согласовано.';
-    const title = 'Проверка Flutter API';
-    final key =
-        metadata['key'] as String? ??
-        'mobile-smoke-${DateTime.now().microsecondsSinceEpoch}';
-    metadata = {'base_url': base.toString(), 'key': key, 'folder_id': root.id};
-    await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
+        'Иван: Выпускаем тестовую версию в пятницу. Мария: Я проверю Android до четверга. Иван: Согласовано. Риск: недостаточно времени на проверку.';
+    const title = 'Проверка Flutter v2';
+    const options = ProcessingOptions(
+      detailLevel: 'detailed',
+      focusAreas: ['tasks', 'owners', 'deadlines', 'risks'],
+      additionalInstructions: 'Выдели задачи отдельными блоками.',
+    );
+    final key = 'mobile-v2-$run';
     var status = await api.submitTranscript(
       text: text,
       title: title,
-      folderIds: [root.id],
+      folderIds: [child.id],
       idempotencyKey: key,
+      options: options,
     );
     metadata['transcript_id'] = status.transcriptId;
-    await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
-    stdout.writeln(
-      'Accepted transcript ${status.transcriptId}; status=${status.phase.name}',
+    metadata['key'] = key;
+    await checkpoint();
+    final replay = await api.submitTranscript(
+      text: text,
+      title: title,
+      folderIds: [child.id],
+      idempotencyKey: key,
+      options: options,
     );
-    if (status.phase == ProcessingPhase.notStarted ||
-        status.phase == ProcessingPhase.error) {
-      status = await api.retryProcessing(status.transcriptId, title, [root.id]);
+    verify(replay.transcriptId == status.transcriptId, 'Replay changed ID');
+    try {
+      await api.submitTranscript(
+        text: text,
+        title: title,
+        folderIds: [child.id],
+        idempotencyKey: key,
+        options: const ProcessingOptions(detailLevel: 'brief'),
+      );
+      throw StateError('Changed payload accepted');
+    } on ApiException catch (e) {
+      verify(e.statusCode == 409, 'Expected idempotency 409');
+    }
+    if (status.phase == ProcessingPhase.summarizing) {
+      try {
+        await api.deleteFolder(root.id);
+        throw StateError('Active folder deleted');
+      } on ApiException catch (e) {
+        verify(
+          e.statusCode == 409 && e.code == 'folder_processing',
+          'Expected folder_processing',
+        );
+      }
+      stdout.writeln('PASS active-generation folder 409');
     }
     final deadline = DateTime.now().add(const Duration(minutes: 4));
-    var interval = 2;
     while (status.phase == ProcessingPhase.summarizing &&
         DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(Duration(seconds: interval));
-      interval = interval < 10 ? interval + 2 : 10;
+      await Future<void>.delayed(const Duration(seconds: 2));
       status = await api.processing(status.transcriptId);
     }
     verify(
       status.phase == ProcessingPhase.ready,
-      'Generation not ready: ${status.errorCode} ${status.errorMessage}',
+      'Generation failed: ${status.errorMessage}',
     );
-    final generated = await api.summary(status.summaryId!);
-    verify(generated.content.trim().isNotEmpty, 'Empty summary');
-    verify(
-      generated.title == title && generated.folderIds.contains(root.id),
-      'Summary metadata mismatch',
-    );
-    stdout.writeln('Real generation ready; summary ${generated.id}');
-    final replay = await api.submitTranscript(
-      text: text,
-      title: title,
-      folderIds: [root.id],
-      idempotencyKey: key,
-    );
-    verify(
-      replay.transcriptId == status.transcriptId &&
-          replay.summaryId == generated.id,
-      'Idempotent replay changed IDs',
-    );
+    final summary = await api.summary(status.summaryId!);
+    metadata['summary_id'] = summary.id;
+    await checkpoint();
+    verify(summary.content.trim().isNotEmpty, 'Empty summary');
     final source = await api.transcript(status.transcriptId);
+    verify(source.text == text, 'Source mismatch');
+    final content =
+        '## Решения\nТестовый выпуск.\n\n### Задача 1\n**Ответственный:** Мария\n\n**Срок:** четверг\n\n- Проверить Android\n\n1. Подготовить отчёт\n\n| Поле | Значение |\n|---|---|\n| Статус | Проверено |';
+    await api.saveSummary(summary.id, title: title, content: content);
     verify(
-      source.text == text && source.isLocked,
-      'Original transcript missing/unlocked',
+      (await api.summary(summary.id)).content == content,
+      'PATCH readback failed',
     );
-    final listed = await api.summaries(root.id);
+    await api.setSummaryFolders(summary.id, [child.id, outside.id]);
+    await api.deleteFolder(root.id);
+    metadata['root_deleted'] = true;
+    await checkpoint();
     verify(
-      listed.items.any((item) => item.id == generated.id),
-      'Summary absent from folder',
-    );
-    final editedContent =
-        '${generated.content}\n\nПроверка мобильного клиента.';
-    await api.saveSummary(
-      generated.id,
-      title: 'Flutter API проверен',
-      content: editedContent,
-    );
-    final edited = await api.summary(generated.id);
-    verify(
-      edited.title == 'Flutter API проверен' && edited.content == editedContent,
-      'Summary edit/readback failed',
-    );
-    final linked = await api.setSummaryFolders(generated.id, [
-      root.id,
-      child.id,
-    ]);
-    verify(
-      linked.folderIds.toSet().containsAll([root.id, child.id]),
-      'Folder links failed',
+      (await api.summary(summary.id)).folderIds.length == 1,
+      'Shared summary not preserved',
     );
     verify(
-      (await api.summaries(child.id)).items
-          .any((item) => item.id == generated.id),
-      'Child folder listing failed',
-    );
-    await api.deleteSummary(generated.id);
-    verify(
-      (await api.transcript(source.id)).isLocked,
-      'Deletion lost original transcript',
+      (await api.summaries(outside.id)).items.any((s) => s.id == summary.id),
+      'Outside link missing',
     );
     verify(
-      (await api.processing(source.id)).phase == ProcessingPhase.notStarted,
-      'Post-delete state mismatch',
+      !flattenFolders(await api.folders())
+          .any((f) => f.folder.id == root.id || f.folder.id == child.id),
+      'Tree retained',
     );
-    metadata['verified_at'] = DateTime.now().toUtc().toIso8601String();
+    await api.deleteSummary(summary.id);
     metadata['summary_deleted'] = true;
-    await metadataFile.writeAsString(jsonEncode(metadata), flush: true);
+    await checkpoint();
+    await missing(() => api.summary(summary.id));
+    await missing(() => api.transcript(source.id));
+    await missing(() => api.processing(source.id));
+    await api.deleteFolder(outside.id);
+    metadata['outside_deleted'] = true;
+    metadata['passed'] = true;
+    await checkpoint();
     stdout.writeln(
-      'PASS: real generation, idempotency, folders, transcript, edit, links, deletion.',
+      'PASS Qwen options, stable replay, changed-payload 409, polling, Markdown PATCH, shared links, folder tree deletion, summary/transcript cleanup.',
     );
-    stdout.writeln(
-      'Test folders and locked transcript remain according to API contract.',
-    );
-  } catch (error) {
-    stderr.writeln('FAIL: $error');
-    stderr.writeln(
-      'Operation metadata retained in build/mobile-smoke.json for safe retry.',
-    );
+  } catch (e) {
+    stderr.writeln('FAIL $e; own fixture metadata: ${file.path}');
     exitCode = 1;
   } finally {
     api.close();
