@@ -42,6 +42,7 @@ class Transcript(Base):
     first_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     source_hash: Mapped[str] = mapped_column(String(64))
+    request_hash: Mapped[str | None] = mapped_column(String(64))
     processing_status: Mapped[str] = mapped_column(String(20), default="not_started")
     processing_title: Mapped[str | None] = mapped_column(String(200))
     processing_folder_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))

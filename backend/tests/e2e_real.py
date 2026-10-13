@@ -24,11 +24,11 @@ def run(base):
         folder = checked(client.post(f"{prefix}/folders", json={"name": "E2E smoke"}), 201)
         source = "Анна: Решили выпустить версию в пятницу. Сергей: Я подготовлю тесты до четверга. Анна: Вопрос бюджета пока не решён."
         key = f"e2e-{uuid.uuid4()}"
-        transcript = checked(client.post(f"{prefix}/transcripts", json={"text": source}, headers={"Idempotency-Key": key}), 201)
-        tid = transcript["id"]
-        repeat = checked(client.post(f"{prefix}/transcripts", json={"text": source}, headers={"Idempotency-Key": key}), 200)
-        assert repeat["id"] == tid
-        checked(client.post(f"{prefix}/transcripts/{tid}/process", json={"title": "E2E smoke", "folder_ids": [folder["id"]]}), 202)
+        body = {"text": source, "title": "E2E smoke", "folder_ids": [folder["id"]]}
+        accepted = checked(client.post(f"{prefix}/transcripts/process", json=body, headers={"Idempotency-Key": key}), 202)
+        tid = accepted["transcript_id"]
+        repeat = checked(client.post(f"{prefix}/transcripts/process", json=body, headers={"Idempotency-Key": key}), 202)
+        assert repeat["transcript_id"] == tid
         deadline = time.monotonic() + 360
         while time.monotonic() < deadline:
             state = checked(client.get(f"{prefix}/transcripts/{tid}/processing"), 200)

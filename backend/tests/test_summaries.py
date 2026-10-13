@@ -71,6 +71,7 @@ def test_api_contract_endpoint_inventory(client):
     paths = client.get("/openapi.json").json()["paths"]
     expected = {
         "/api/v1/transcripts": {"post"},
+        "/api/v1/transcripts/process": {"post"},
         "/api/v1/transcripts/{id}": {"get", "patch"},
         "/api/v1/transcripts/{id}/process": {"post"},
         "/api/v1/transcripts/{id}/processing": {"get"},

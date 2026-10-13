@@ -67,6 +67,10 @@ class ProcessInput(FolderAssignment):
     title: Name
 
 
+class CreateProcessInput(ProcessInput, TranscriptInput):
+    pass
+
+
 class ProcessingError(BaseModel):
     code: str
     message: str

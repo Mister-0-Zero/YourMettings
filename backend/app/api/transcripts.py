@@ -1,4 +1,5 @@
 import hashlib
+import json
 from typing import Annotated
 from uuid import UUID
 
@@ -12,7 +13,7 @@ from app.api.errors import fail
 from app.core.config import settings
 from app.db.models import Transcript, Summary
 from app.db.session import TEST_USER_ID, get_db
-from app.schemas import TranscriptInput, TranscriptOut, ProcessInput, ProcessingOut
+from app.schemas import TranscriptInput, TranscriptOut, ProcessInput, ProcessingOut, CreateProcessInput
 from app.integrations.ollama import OllamaGenerator, get_generator
 from app.services.processing import processing_response, run_processing
 from sqlalchemy.orm import sessionmaker
@@ -45,7 +46,7 @@ def create_transcript(body: TranscriptInput, response: Response,
         if item is None:
             item = db.scalar(select(Transcript).where(
                 Transcript.owner_user_id == TEST_USER_ID, Transcript.idempotency_key == idempotency_key))
-            if item.source_hash != digest:
+            if item.request_hash is not None or item.source_hash != digest:
                 fail(409, "idempotency_conflict", "Ключ уже использован для другого текста.")
             response.status_code = 200
     else:
@@ -53,6 +54,66 @@ def create_transcript(body: TranscriptInput, response: Response,
         db.add(item)
     db.commit()
     return transcript_response(item)
+
+
+def accept_processing(db, item, body, generator):
+    validate_folders(db, body.folder_ids)
+    if isinstance(generator, OllamaGenerator) and not generator.model:
+        fail(503, "llm_not_configured", "На сервере не задан тег модели.")
+    item.processing_status = "summarizing"
+    item.processing_title = body.title
+    item.processing_folder_ids = body.folder_ids
+    item.processing_attempt += 1
+    item.error_code = None
+
+
+def commit_and_schedule(db, item, tasks, generator):
+    db.flush()
+    id, attempt = item.id, item.processing_attempt
+    # Text and accepted parameters become durable together, before scheduling.
+    db.commit()
+    result = processing_response(db, item)
+    db.commit()  # Release the response read transaction before the model call.
+    factory = sessionmaker(db.get_bind(), expire_on_commit=False)
+    tasks.add_task(run_processing, factory, id, attempt, generator)
+    return result
+
+
+@router.post("/process", response_model=ProcessingOut, status_code=202,
+    summary="Create a meeting and start processing (recommended for Flutter)",
+    responses={404: {"description": "Folder not found or inaccessible"},
+        409: {"description": "Idempotency key conflicts with original parameters"},
+        413: {"description": "Transcript exceeds the configured size limit"},
+        503: {"description": "Database unavailable or model not configured"},
+        500: {"description": "Unexpected server error"}})
+def create_and_process(body: CreateProcessInput, tasks: BackgroundTasks,
+    idempotency_key: Annotated[str | None, Header(min_length=1, max_length=128)] = None,
+    db: Session = Depends(get_db), generator=Depends(get_generator)):
+    check_size(body.text)
+    source_hash = hashlib.sha256(body.text.encode("utf-8")).hexdigest()
+    canonical = json.dumps({"text": body.text, "title": body.title,
+        "folder_ids": sorted(str(id) for id in body.folder_ids)}, ensure_ascii=False, sort_keys=True)
+    request_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    values = dict(owner_user_id=TEST_USER_ID, text=body.text, source_hash=source_hash,
+        request_hash=request_hash, idempotency_key=idempotency_key,
+        processing_status="not_started", processing_attempt=0)
+    if idempotency_key is not None:
+        # The unique index serializes concurrent requests with the same key.
+        stmt = insert(Transcript).values(**values).on_conflict_do_nothing(
+            index_elements=[Transcript.owner_user_id, Transcript.idempotency_key]).returning(Transcript)
+        item = db.scalar(stmt)
+        if item is None:
+            item = db.scalar(select(Transcript).where(Transcript.owner_user_id == TEST_USER_ID,
+                Transcript.idempotency_key == idempotency_key))
+            if item.request_hash != request_hash:
+                fail(409, "idempotency_conflict", "Ключ уже использован для другого запроса.")
+            return processing_response(db, item)
+    else:
+        item = Transcript(**values)
+        db.add(item)
+    # Validation failure rolls back creation; no orphan transcript is committed.
+    accept_processing(db, item, body, generator)
+    return commit_and_schedule(db, item, tasks, generator)
 
 
 @router.get("/{id}", response_model=TranscriptOut)
@@ -81,22 +142,8 @@ def process_transcript(id: UUID, body: ProcessInput, response: Response,
     if existing is not None:
         response.status_code = 200
         return processing_response(db, item)
-    validate_folders(db, body.folder_ids)
-    if isinstance(generator, OllamaGenerator) and not generator.model:
-        fail(503, "llm_not_configured", "На сервере не задан тег модели.")
-    item.processing_status = "summarizing"
-    item.processing_title = body.title
-    item.processing_folder_ids = body.folder_ids
-    item.processing_attempt += 1
-    item.error_code = None
-    attempt = item.processing_attempt
-    db.commit()
-    result = processing_response(db, item)
-    db.commit()  # Release the read transaction before BackgroundTasks executes.
-    # Separate sessions for background work; never pass the request session.
-    factory = sessionmaker(db.get_bind(), expire_on_commit=False)
-    tasks.add_task(run_processing, factory, id, attempt, generator)
-    return result
+    accept_processing(db, item, body, generator)
+    return commit_and_schedule(db, item, tasks, generator)
 
 
 @router.get("/{id}/processing", response_model=ProcessingOut)
