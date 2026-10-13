@@ -28,6 +28,9 @@ void main() {
       final api = ApiClient(
         Uri.parse('http://localhost/api/v1/'),
         client: MockClient((request) async {
+          if (request.url.path == '/api/v1/summaries/s1') {
+            return response(summaryJson);
+          }
           expect(request.url.path, '/api/v1/summaries');
           expect(request.url.queryParameters['folder_id'], 'f2');
           return response({
