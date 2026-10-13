@@ -2,17 +2,20 @@ import hashlib
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Response
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import owned_transcript
+from app.api.dependencies import owned_transcript, validate_folders
 from app.api.errors import fail
 from app.core.config import settings
-from app.db.models import Transcript
+from app.db.models import Transcript, Summary
 from app.db.session import TEST_USER_ID, get_db
-from app.schemas import TranscriptInput, TranscriptOut
+from app.schemas import TranscriptInput, TranscriptOut, ProcessInput, ProcessingOut
+from app.integrations.ollama import SummaryGenerator, get_generator
+from app.services.processing import processing_response, run_processing
+from sqlalchemy.orm import sessionmaker
 
 router = APIRouter(prefix="/transcripts", tags=["transcripts"])
 
@@ -66,3 +69,36 @@ def edit_transcript(id: UUID, body: TranscriptInput, db: Session = Depends(get_d
     item.text = body.text
     db.commit()
     return transcript_response(item)
+
+
+@router.post("/{id}/process", response_model=ProcessingOut, status_code=202)
+def process_transcript(id: UUID, body: ProcessInput, response: Response,
+    tasks: BackgroundTasks, db: Session = Depends(get_db), generator=Depends(get_generator)):
+    item = owned_transcript(db, id, lock=True)
+    if item.processing_status == "summarizing":
+        return processing_response(db, item)
+    existing = db.scalar(select(Summary.id).where(Summary.transcript_id == id, Summary.user_id == TEST_USER_ID))
+    if existing is not None:
+        response.status_code = 200
+        return processing_response(db, item)
+    validate_folders(db, body.folder_ids)
+    if not settings.ollama_model and generator.__class__.__name__ == "OllamaGenerator":
+        fail(503, "llm_not_configured", "На сервере не задан тег модели.")
+    item.processing_status = "summarizing"
+    item.processing_title = body.title
+    item.processing_folder_ids = body.folder_ids
+    item.processing_attempt += 1
+    item.error_code = None
+    attempt = item.processing_attempt
+    db.commit()
+    result = processing_response(db, item)
+    db.commit()  # Release the read transaction before BackgroundTasks executes.
+    # Separate sessions for background work; never pass the request session.
+    factory = sessionmaker(db.get_bind(), expire_on_commit=False)
+    tasks.add_task(run_processing, factory, id, attempt, generator)
+    return result
+
+
+@router.get("/{id}/processing", response_model=ProcessingOut)
+def get_processing(id: UUID, db: Session = Depends(get_db)):
+    return processing_response(db, owned_transcript(db, id))
