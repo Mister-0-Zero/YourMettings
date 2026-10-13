@@ -353,11 +353,14 @@ class ProcessingPanel extends StatelessWidget {
   Future<void> _openResult(BuildContext context, MeetingSummary summary) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) =>
-            SummaryPageView(controller: controller, summary: summary),
+        builder: (_) => SummaryPageView(
+          controller: controller,
+          summary: summary,
+          startEditing: true,
+        ),
       ),
     );
-    await controller.check();
+    if (controller.hasOperation) await controller.check();
   }
 
   Future<void> _dismiss(BuildContext context) async {
@@ -440,7 +443,7 @@ class ProcessingPanel extends StatelessWidget {
             onPressed: controller.working
                 ? null
                 : () => _openResult(context, result),
-            child: const Text('Открыть и редактировать summary'),
+            child: const Text('Редактировать'),
           ),
           FilledButton(
             onPressed: controller.working ? null : controller.finish,

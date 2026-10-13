@@ -11,9 +11,11 @@ class SummaryPageView extends StatefulWidget {
     super.key,
     required this.controller,
     required this.summary,
+    this.startEditing = false,
   });
   final MeetingController controller;
   final MeetingSummary summary;
+  final bool startEditing;
   @override
   State<SummaryPageView> createState() => _SummaryPageViewState();
 }
@@ -23,7 +25,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
   late Future<void> _loading = _load();
   final _title = TextEditingController();
   final _content = TextEditingController();
-  bool _editing = false;
+  late bool _editing = widget.startEditing;
   bool _busy = false;
   bool _allowExit = false;
   Future<void> _load() async {
@@ -43,9 +45,14 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  Future<void> _toggleEditor() async {
-    if (_editing && !await _editor!.flush()) return;
-    if (mounted) setState(() => _editing = !_editing);
+  Future<void> _confirmEditing() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      if (await _editor!.flush() && mounted) setState(() => _editing = false);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _changeFolders() async {
@@ -80,7 +87,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
       builder: (context) => AlertDialog(
         title: const Text('Удалить результат встречи?'),
         content: const Text(
-          'Summary будет удалён из всех связанных папок. Исходный транскрипт останется на сервере.',
+          'Удалить этот результат встречи? Если исходный транскрипт больше нигде не используется, он также будет удалён.',
         ),
         actions: [
           TextButton(
@@ -98,6 +105,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     setState(() => _busy = true);
     try {
       await widget.controller.api.deleteSummary(widget.summary.id);
+      await widget.controller.summaryDeleted(widget.summary.transcriptId);
       if (!mounted) return;
       setState(() => _allowExit = true);
       await WidgetsBinding.instance.endOfFrame;
@@ -172,15 +180,29 @@ class _SummaryPageViewState extends State<SummaryPageView> {
           },
           child: Scaffold(
             appBar: AppBar(
-              title: Text(editor.title),
+              title: Text(
+                editor.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               actions: [
-                IconButton(
-                  onPressed: _busy ? null : _toggleEditor,
-                  icon: Icon(
-                    _editing ? Icons.visibility_outlined : Icons.edit_outlined,
+                if (_editing)
+                  IconButton(
+                    onPressed: _busy ? null : _confirmEditing,
+                    icon: const Icon(Icons.check),
+                    tooltip: 'Сохранить изменения',
+                  )
+                else
+                  Tooltip(
+                    message: 'Редактировать',
+                    child: TextButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() => _editing = true),
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Редактировать'),
+                    ),
                   ),
-                  tooltip: _editing ? 'Предпросмотр' : 'Редактировать',
-                ),
                 PopupMenuButton<String>(
                   enabled: !_busy,
                   onSelected: _action,

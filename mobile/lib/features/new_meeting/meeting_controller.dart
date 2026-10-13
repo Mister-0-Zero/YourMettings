@@ -142,6 +142,14 @@ class MeetingController extends ChangeNotifier {
       error = storageError ?? e.toString();
       _failures++;
       retryLater = _failures < 4 && !(e is ApiException && e.statusCode == 409);
+      if (e is ApiException &&
+          e.statusCode == 404 &&
+          recovery.operation != null) {
+        final missingId = recovery.operation!.id;
+        await summaryDeleted(missingId);
+        error = 'Встреча удалена или больше недоступна.';
+        retryLater = false;
+      }
       // Validation rejection is unambiguous: preserve the editable draft.
       if (e is ApiException &&
           recovery.pending != null &&
@@ -188,6 +196,21 @@ class MeetingController extends ChangeNotifier {
     }
     // A timeout may hide accepted retry; check its state, do not POST repeatedly.
     await check();
+  }
+
+  Future<void> summaryDeleted(String transcriptId) async {
+    if (recovery.operation?.id != transcriptId) return;
+    _timer?.cancel();
+    recovery = RecoveryState();
+    status = null;
+    result = null;
+    error = null;
+    try {
+      await _persist();
+    } catch (_) {
+      /* Accepted ID on disk is safe: restart only GETs it. */
+    }
+    _notify();
   }
 
   Future<void> finish() async {
