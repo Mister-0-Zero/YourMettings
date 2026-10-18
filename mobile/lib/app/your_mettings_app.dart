@@ -28,6 +28,8 @@ class _YourMettingsAppState extends State<YourMettingsApp> {
     animation: _appearance,
     builder: (context, _) => MaterialApp(
       title: 'YourMettings',
+      builder: (context, child) =>
+          AppearanceScope(controller: _appearance, child: child!),
       debugShowCheckedModeBanner: false,
       locale: const Locale('ru'),
       supportedLocales: const [Locale('ru')],

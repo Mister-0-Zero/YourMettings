@@ -10,6 +10,7 @@ class AppearanceController extends ChangeNotifier {
   final File? file;
   ThemeMode themeMode = ThemeMode.system;
   AccentColor accent = AccentColor.blue;
+  bool skipFolderDeleteConfirmation = false;
   String? error;
   Future<void> _queue = Future.value();
   bool _disposed = false;
@@ -18,16 +19,25 @@ class AppearanceController extends ChangeNotifier {
     final json = jsonDecode(await file!.readAsString()) as Map<String, dynamic>;
     themeMode = ThemeMode.values.byName(json['theme_mode'] as String);
     accent = AccentColor.values.byName(json['accent'] as String);
+    skipFolderDeleteConfirmation =
+        json['skip_folder_delete_confirmation'] as bool? ?? false;
   }
 
-  Future<void> update({ThemeMode? mode, AccentColor? color}) async {
+  Future<void> update({
+    ThemeMode? mode,
+    AccentColor? color,
+    bool? skipFolderConfirmation,
+  }) async {
     themeMode = mode ?? themeMode;
     accent = color ?? accent;
+    skipFolderDeleteConfirmation =
+        skipFolderConfirmation ?? skipFolderDeleteConfirmation;
     error = null;
     notifyListeners();
     final content = jsonEncode({
       'theme_mode': themeMode.name,
       'accent': accent.name,
+      'skip_folder_delete_confirmation': skipFolderDeleteConfirmation,
     });
     final task = _queue.then((_) async {
       if (file == null) return;
@@ -40,7 +50,7 @@ class AppearanceController extends ChangeNotifier {
     try {
       await task;
     } catch (_) {
-      error = 'Не удалось сохранить оформление. Повторите выбор.';
+      error = 'Не удалось сохранить настройки. Повторите выбор.';
     }
     if (!_disposed) notifyListeners();
   }
@@ -98,6 +108,13 @@ class AppearancePage extends StatelessWidget {
           if (color != null) controller.update(color: color);
         },
       ),
+      const SizedBox(height: 20),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Не спрашивать подтверждение при удалении папок'),
+        value: controller.skipFolderDeleteConfirmation,
+        onChanged: (value) => controller.update(skipFolderConfirmation: value),
+      ),
       if (controller.error != null)
         Padding(
           padding: const EdgeInsets.only(top: 16),
@@ -112,4 +129,14 @@ class AppearancePage extends StatelessWidget {
       const Text('Первая версия использует тестового пользователя сервера.'),
     ],
   );
+}
+
+class AppearanceScope extends InheritedNotifier<AppearanceController> {
+  const AppearanceScope({
+    super.key,
+    required AppearanceController controller,
+    required super.child,
+  }) : super(notifier: controller);
+  static AppearanceController? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<AppearanceScope>()?.notifier;
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
+import '../../app/appearance.dart';
 import '../../models/api_models.dart';
 import '../new_meeting/meeting_controller.dart';
 import 'folder_picker.dart';
@@ -359,28 +360,31 @@ Future<bool> deleteFolderWithConfirmation(
   MeetingController controller,
   Folder folder,
 ) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Удалить папку?'),
-      content: Text(
-        'Будет удалена папка «${folder.name}» со всеми вложенными папками и содержимым. '
-        'Результаты встреч, которые также находятся в других папках, сохранятся. '
-        'Неиспользуемые исходные транскрипты также могут быть удалены.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('Отмена'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Удалить'),
-        ),
-      ],
-    ),
-  );
-  if (confirmed != true) return false;
+  final skip =
+      AppearanceScope.maybeOf(context)?.skipFolderDeleteConfirmation ?? false;
+  final confirmed =
+      skip ||
+      await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Удалить папку?'),
+              content: const Text(
+                'Папка и все summary, которые хранятся в ней, будут удалены. Вы уверены в удалении?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Отмена'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Удалить'),
+                ),
+              ],
+            ),
+          ) ==
+          true;
+  if (!confirmed) return false;
   try {
     await controller.deleteFolder(folder);
     return true;

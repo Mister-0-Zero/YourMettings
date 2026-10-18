@@ -390,9 +390,13 @@ class ProcessingPanel extends StatelessWidget {
   }
 
   Future<void> _accept(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
     await controller.finish();
-    if (!controller.hasOperation && context.mounted) {
-      await Navigator.of(context).maybePop();
+    if (!controller.hasOperation &&
+        navigator.mounted &&
+        route?.isCurrent == true) {
+      await navigator.maybePop();
     }
   }
 

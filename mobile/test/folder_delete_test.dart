@@ -67,7 +67,12 @@ void main() {
           await tester.pumpAndSettle();
           await tester.tap(find.text('Удалить папку'));
           await tester.pump(const Duration(milliseconds: 300));
-          expect(find.textContaining('вложенными папками'), findsOneWidget);
+          expect(
+            find.text(
+              'Папка и все summary, которые хранятся в ней, будут удалены. Вы уверены в удалении?',
+            ),
+            findsOneWidget,
+          );
         }
 
         await confirmDialog();

@@ -16,7 +16,7 @@ void main() {
     final controller = AppearanceController(file: file);
     addTearDown(controller.dispose);
     await Future.wait([
-      controller.update(mode: ThemeMode.dark),
+      controller.update(mode: ThemeMode.dark, skipFolderConfirmation: true),
       controller.update(color: AccentColor.green),
     ]);
     final restarted = AppearanceController(file: file);
@@ -24,6 +24,7 @@ void main() {
     await restarted.load();
     expect(restarted.themeMode, ThemeMode.dark);
     expect(restarted.accent, AccentColor.green);
+    expect(restarted.skipFolderDeleteConfirmation, isTrue);
   });
 
   testWidgets(
