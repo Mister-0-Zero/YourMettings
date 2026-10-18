@@ -389,90 +389,115 @@ class ProcessingPanel extends StatelessWidget {
     if (confirmed == true) await controller.finish();
   }
 
+  Future<void> _accept(BuildContext context) async {
+    await controller.finish();
+    if (!controller.hasOperation && context.mounted) {
+      await Navigator.of(context).maybePop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final result = controller.result;
     final failed = controller.status?.phase == ProcessingPhase.error;
     final notStarted = controller.status?.phase == ProcessingPhase.notStarted;
-    return ListView(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        20,
-        20,
-        20 + MediaQuery.viewPaddingOf(context).bottom,
+    final message = controller.storageError ?? controller.error;
+    return SafeArea(
+      top: false,
+      child: Column(
+        children: [
+          if (result != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: controller.working
+                        ? null
+                        : () => _openResult(context, result),
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Редактировать'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: controller.working
+                        ? null
+                        : () => _accept(context),
+                    icon: const Icon(Icons.check),
+                    label: const Text('Принять'),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                if (result != null) ...[
+                  Text(
+                    result.title,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  if (message != null) Text(message),
+                  const SizedBox(height: 20),
+                  MarkdownBody(
+                    data: result.content,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet.fromTheme(
+                      Theme.of(context),
+                    ).copyWith(tableColumnWidth: const IntrinsicColumnWidth()),
+                    imageBuilder: (uri, title, alt) =>
+                        Text(alt ?? 'Изображение'),
+                  ),
+                ] else ...[
+                  if (!failed && !notStarted) ...[
+                    const Center(child: CircularProgressIndicator()),
+                    const SizedBox(height: 20),
+                    Text(
+                      message == null
+                          ? 'Qwen обрабатывает совещание…'
+                          : 'Соединение с сервером потеряно',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('Это может занять некоторое время'),
+                    const Text(
+                      'Состояние проверяется автоматически и восстановится после перезапуска.',
+                    ),
+                  ] else
+                    Text(
+                      failed
+                          ? 'Ошибка обработки Qwen'
+                          : 'Обработка не запущена',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                  if (message != null) ...[
+                    const SizedBox(height: 12),
+                    Text(message),
+                  ],
+                  if (failed || notStarted) ...[
+                    FilledButton(
+                      onPressed: controller.working ? null : controller.retry,
+                      child: const Text('Повторить обработку'),
+                    ),
+                    TextButton(
+                      onPressed: controller.working
+                          ? null
+                          : () => _dismiss(context),
+                      child: const Text('Начать другую встречу'),
+                    ),
+                  ] else if (message != null)
+                    TextButton(
+                      onPressed: controller.working ? null : controller.check,
+                      child: const Text('Восстановить соединение'),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
-      children: [
-        Icon(
-          result != null
-              ? Icons.task_alt
-              : failed
-              ? Icons.error_outline
-              : Icons.auto_awesome_outlined,
-          size: 48,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        const SizedBox(height: 20),
-        Text(
-          result != null
-              ? result.title
-              : failed
-              ? 'Ошибка обработки'
-              : notStarted
-              ? 'Обработка не запущена'
-              : 'Обрабатываем встречу',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        const SizedBox(height: 12),
-        if (controller.working) const LinearProgressIndicator(),
-        if (result == null && !failed)
-          const Text(
-            'Можно вернуться к другим разделам. Состояние обработки восстановится после перезапуска.',
-          ),
-        if (controller.error != null || controller.storageError != null) ...[
-          const SizedBox(height: 12),
-          Text(controller.storageError ?? controller.error!),
-        ],
-        if (result != null) ...[
-          const SizedBox(height: 20),
-          MarkdownBody(
-            data: result.content,
-            selectable: true,
-            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
-                .copyWith(tableColumnWidth: const IntrinsicColumnWidth()),
-            imageBuilder: (uri, title, alt) => Text(alt ?? 'Изображение'),
-          ),
-          const SizedBox(height: 20),
-          OutlinedButton(
-            onPressed: controller.working
-                ? null
-                : () => _openResult(context, result),
-            child: const Text('Редактировать'),
-          ),
-          FilledButton(
-            onPressed: controller.working ? null : controller.finish,
-            child: const Text('Готово — новая встреча'),
-          ),
-        ] else ...[
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: controller.working
-                ? null
-                : (failed || notStarted)
-                ? controller.retry
-                : controller.check,
-            child: Text(
-              (failed || notStarted)
-                  ? 'Повторить обработку'
-                  : 'Проверить состояние',
-            ),
-          ),
-          if (failed || notStarted)
-            TextButton(
-              onPressed: controller.working ? null : () => _dismiss(context),
-              child: const Text('Начать другую встречу'),
-            ),
-        ],
-      ],
     );
   }
 }

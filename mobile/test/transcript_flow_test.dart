@@ -84,19 +84,14 @@ void main() {
       expect(find.text('Решения'), findsOneWidget);
       expect(store.state.draft.text, isEmpty);
       expect(store.state.operation!.id, 't1');
-      await tester.ensureVisible(find.text('Готово — новая встреча'));
+      await tester.ensureVisible(find.text('Принять'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Готово — новая встреча'));
+      await tester.tap(find.text('Принять'));
       await tester.pumpAndSettle();
       expect(store.state.operation, isNull);
       expect(controller.draft.text, isEmpty);
-      expect(
-        tester
-            .widget<TextFormField>(find.byType(TextFormField).first)
-            .controller!
-            .text,
-        isEmpty,
-      );
+      expect(find.text('Загрузить транскрипт'), findsOneWidget);
+      expect(find.byType(TextFormField), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

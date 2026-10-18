@@ -27,18 +27,26 @@ void main() {
     'ready-result edit opens with one click; check saves and returns to Markdown',
     (tester) async {
       final methods = <String>[];
+      var saved = Map<String, dynamic>.from(summaryJson);
       final api = ApiClient(
         Uri.parse('http://localhost/api/v1/'),
         client: MockClient((request) async {
           methods.add(request.method);
-          return response(
-            request.method == 'PATCH'
-                ? {
-                    ...summaryJson,
-                    ...jsonDecode(request.body) as Map<String, dynamic>,
-                  }
-                : summaryJson,
-          );
+          if (request.method == 'PATCH') {
+            saved = {
+              ...saved,
+              ...jsonDecode(request.body) as Map<String, dynamic>,
+            };
+          }
+          if (request.url.path.endsWith('/processing')) {
+            return response({
+              'transcript_id': 't1',
+              'status': 'ready',
+              'summary_id': 's1',
+              'error': null,
+            });
+          }
+          return response(saved);
         }),
       );
       final controller = MeetingController(api, _MemoryStore());
@@ -52,7 +60,12 @@ void main() {
       });
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(body: ProcessingPanel(controller: controller)),
+          home: Scaffold(
+            body: AnimatedBuilder(
+              animation: controller,
+              builder: (_, _) => ProcessingPanel(controller: controller),
+            ),
+          ),
         ),
       );
       await tester.ensureVisible(find.text('Редактировать'));

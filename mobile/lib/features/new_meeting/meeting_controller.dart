@@ -180,7 +180,9 @@ class MeetingController extends ChangeNotifier {
     } catch (e) {
       error = storageError ?? e.toString();
       _failures++;
-      retryLater = _failures < 4 && !(e is ApiException && e.statusCode == 409);
+      retryLater =
+          (e is ApiException && e.isNetwork || _failures < 4) &&
+          !(e is ApiException && e.statusCode == 409);
       if (e is ApiException &&
           e.statusCode == 404 &&
           recovery.operation != null) {

@@ -49,7 +49,15 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      if (await _editor!.flush() && mounted) setState(() => _editing = false);
+      if (await _editor!.flush() && mounted) {
+        if (widget.startEditing) {
+          setState(() => _allowExit = true);
+          await WidgetsBinding.instance.endOfFrame;
+          if (mounted) Navigator.of(context).pop();
+        } else {
+          setState(() => _editing = false);
+        }
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
