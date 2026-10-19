@@ -111,8 +111,85 @@ class VisualMarkdown {
     return value;
   }
 
-  static String _signature(q.Document value) =>
-      jsonEncode(_sorted(value.toDelta().toJson()));
+  static String _signature(q.Document value) {
+    final runs = <(StringBuffer, String, bool)>[];
+    void append(String text, String attributes, {bool literal = false}) {
+      if (text.isEmpty) return;
+      if (runs.isNotEmpty &&
+          runs.last.$2 == attributes &&
+          runs.last.$3 == literal) {
+        runs.last.$1.write(text);
+      } else {
+        runs.add((StringBuffer(text), attributes, literal));
+      }
+    }
+
+    void trimParagraphEnd() {
+      while (runs.isNotEmpty && !runs.last.$3) {
+        final last = runs.last;
+        final text = last.$1.toString();
+        final trimmed = text.replaceFirst(RegExp(r'[ \t]+$'), '');
+        if (trimmed == text) break;
+        runs.removeLast();
+        if (trimmed.isNotEmpty) {
+          runs.add((StringBuffer(trimmed), last.$2, last.$3));
+          break;
+        }
+      }
+    }
+
+    const inlineKeys = {
+      'bold',
+      'italic',
+      'underline',
+      'strike',
+      'link',
+      'code',
+      'color',
+      'background',
+      'font',
+      'size',
+      'script',
+      'small',
+    };
+    for (final operation in value.toDelta().toList()) {
+      final data = operation.data;
+      if (data is! String) {
+        return 'unsupported-embed:${jsonEncode(value.toDelta().toJson())}';
+      }
+      final attributes = {...?operation.attributes}
+        ..removeWhere(
+          (key, value) =>
+              value == null ||
+              value == false ||
+              (key == 'indent' && value == 0),
+        );
+      final inline = jsonEncode(_sorted(attributes));
+      final literal = attributes['code'] == true;
+      final lineAttributes = {...attributes}
+        ..removeWhere((key, _) => inlineKeys.contains(key));
+      final newline = jsonEncode(_sorted(lineAttributes));
+      // Markdown ignores normal trailing paragraph spaces. IMEs report them
+      // after every typed word; they must not trigger a false data-loss alarm.
+      // Code whitespace and existing hard breaks remain protected separately.
+      var offset = 0;
+      for (
+        var end = data.indexOf('\n');
+        end >= 0;
+        end = data.indexOf('\n', offset)
+      ) {
+        append(data.substring(offset, end), inline, literal: literal);
+        if (!lineAttributes.containsKey('code-block')) trimParagraphEnd();
+        append('\n', newline);
+        offset = end + 1;
+      }
+      append(data.substring(offset), inline, literal: literal);
+    }
+    return jsonEncode([
+      for (final run in runs) [run.$1.toString(), run.$2],
+    ]);
+  }
+
   String export(q.Document value) {
     if (_signature(value) == _originalDelta) return original;
     if (value.toDelta().toList().any((op) => op.data is! String)) {
