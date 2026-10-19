@@ -59,6 +59,15 @@ void main() {
             tester.getRect(find.text('Детализация summary')).bottom,
             lessThan(600),
           );
+          await tester.ensureVisible(
+            find.text('Дополнительные указания для ИИ'),
+          );
+          await tester.pumpAndSettle();
+          final instructionsLabel = tester.widget<Text>(
+            find.text('Дополнительные указания для ИИ'),
+          );
+          expect(instructionsLabel.maxLines, isNull);
+          expect(instructionsLabel.overflow, isNull);
           await tester.ensureVisible(find.byType(TextFormField).last);
           await tester.pumpAndSettle();
           await tester.tap(find.byType(TextFormField).last);

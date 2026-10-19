@@ -301,13 +301,17 @@ class _TranscriptPageState extends State<TranscriptPage> {
                     ],
                   ),
                   const SizedBox(height: 16),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Дополнительные указания для ИИ'),
+                  ),
+                  const SizedBox(height: 8),
                   TextFormField(
                     controller: _instructions,
                     minLines: 3,
                     maxLines: 6,
                     maxLength: 2000,
                     decoration: const InputDecoration(
-                      labelText: 'Дополнительные указания для ИИ',
                       hintText: 'Отдельно выдели поручения конкретным сотрудникам, сохрани технические подробности обсуждения',
                     ),
                     validator: (value) =>
