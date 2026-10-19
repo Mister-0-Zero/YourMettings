@@ -134,7 +134,7 @@ void main() {
       tester.widget<TextField>(find.byType(TextField).first).controller!.text,
       'Новое название',
     );
-    expect(find.text('База недоступна'), findsOneWidget);
+    expect(find.text('База недоступна'), findsWidgets);
   });
   test(
     'missing accepted transcript clears recovery without another POST',

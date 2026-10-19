@@ -172,7 +172,7 @@ void main() {
       await tester.tap(find.byTooltip('Сохранить изменения'));
       await tester.pumpAndSettle();
       expect(find.byType(q.QuillEditor), findsOneWidget);
-      expect(find.text('Повторите сохранение'), findsOneWidget);
+      expect(find.text('Повторите сохранение'), findsWidgets);
       await tester.tap(find.byTooltip('Сохранить изменения'));
       await tester.pumpAndSettle();
       expect(find.byType(q.QuillEditor), findsNothing);

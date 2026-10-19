@@ -149,7 +149,7 @@ void main() {
     bridge.document.insert(bridge.document.length - 1, '\nНовый абзац');
     final output = bridge.export(bridge.document);
     expect(output, contains('**Обычный**'));
-    expect(output, contains('_текст_'));
+    expect(output, contains('*текст*'));
     expect(output, contains('Новый абзац'));
   });
   test('unsupported new formatting is rejected before autosave', () async {

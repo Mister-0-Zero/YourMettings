@@ -53,13 +53,30 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     final editor = _editor;
     if (editor == null) return true;
     if (_editing) {
+      FocusManager.instance.primaryFocus?.unfocus();
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return false;
+      editor.edit(title: _title.text);
       try {
         editor.edit(content: _visual!.export());
       } on FormatException catch (e) {
         editor.blockContentSave(e.message);
       }
     }
-    return editor.flush();
+    final saved = await editor.flush();
+    if (!saved && mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              editor.error ??
+                  'Не удалось сохранить изменения. Повторите попытку.',
+            ),
+          ),
+        );
+    }
+    return saved;
   }
 
   void _resetVisual() {
@@ -327,6 +344,25 @@ class _SummaryPageViewState extends State<SummaryPageView> {
               children: [
                 if (_editing)
                   VisualEditorToolbar(document: _visual!, enabled: !_busy),
+                if (editor.saving) const LinearProgressIndicator(),
+                if (editor.error != null)
+                  Semantics(
+                    liveRegion: true,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      child: Text(
+                        editor.error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: ListView(
                     padding: EdgeInsets.fromLTRB(
@@ -336,7 +372,6 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                       20 + MediaQuery.viewPaddingOf(context).bottom,
                     ),
                     children: [
-                      if (editor.saving) const LinearProgressIndicator(),
                       Row(
                         children: [
                           Expanded(
@@ -359,16 +394,6 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                             ),
                         ],
                       ),
-                      if (editor.error != null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Text(
-                            editor.error!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                          ),
-                        ),
                       const SizedBox(height: 16),
                       if (_editing) ...[
                         TextField(

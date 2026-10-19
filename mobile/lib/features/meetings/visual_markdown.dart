@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_quill/flutter_quill.dart' as q;
+import 'package:flutter_quill/quill_delta.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:markdown_quill/markdown_quill.dart';
 
@@ -51,17 +52,20 @@ class VisualMarkdown {
     _parse(original).forEach(check);
     final delta = _importer.convert(original);
     document = delta.isEmpty ? q.Document() : q.Document.fromDelta(delta);
-    if (_tree(original) != _tree(_exporter.convert(document.toDelta()))) {
+    try {
+      if (_tree(original) != _tree(_convert(document))) {
+        throw const FormatException('Конвертация меняет структуру Markdown.');
+      }
+      if (document.toDelta().toList().any((op) => !_supportedInsert(op.data))) {
+        throw const FormatException(
+          'Встроенный объект сохраняется неизменяемым.',
+        );
+      }
+      _originalDelta = _signature(document, normaliseEmpty: false);
+    } catch (_) {
       document.close();
-      throw const FormatException('Конвертация меняет структуру Markdown.');
+      rethrow;
     }
-    if (document.toDelta().toList().any((op) => !_supportedInsert(op.data))) {
-      document.close();
-      throw const FormatException(
-        'Встроенный объект сохраняется неизменяемым.',
-      );
-    }
-    _originalDelta = _signature(document);
   }
   final String original;
   late final q.Document document;
@@ -81,56 +85,170 @@ class VisualMarkdown {
       'h6': (_) => [q.Attribute.h6],
     },
   );
-  static final _exporter = DeltaToMarkdown(
+  static final _exporter = _createExporter();
+  static final _boundaryExporter = DeltaToMarkdown(
+    customTextAttrsHandlers: {
+      for (final key in ['bold', 'italic', 'strike', 'link', 'code'])
+        key: CustomAttributeHandler(),
+    },
+    customContentHandler: _writeInline,
+  );
+  static DeltaToMarkdown _createExporter() => DeltaToMarkdown(
+    customTextAttrsHandlers: {
+      'italic': CustomAttributeHandler(
+        beforeContent: (attribute, node, out) {
+          if (node.previous?.style.attributes['italic']?.value != true) {
+            out.write('*');
+          }
+        },
+        afterContent: (attribute, node, out) {
+          if (node.next?.style.attributes['italic']?.value != true) {
+            out.write('*');
+          }
+        },
+      ),
+    },
     customContentHandler: (text, out) {
-      final escaped = StringBuffer();
-      DeltaToMarkdown.escapeSpecialCharacters(text, escaped);
-      out.write(escaped.toString().replaceAll('\u2028', '  \n'));
+      final literal =
+          text.style.attributes.containsKey('code') ||
+          text.parent?.style.attributes.containsKey('code-block') == true;
+      out.write(literal ? text.value : _escape(text.value));
     },
   );
-  static String _tree(String text) {
-    late Object Function(md.Node, bool) node;
-    // Escaping punctuation changes AST text-node boundaries, not content.
-    // Merge adjacent text before normalizing whitespace; keep every element,
-    // attribute, hard break and literal code boundary in the comparison.
-    List<Object> children(List<md.Node> nodes, bool literal) {
-      final result = <Object>[];
-      var text = '';
-      void flush() {
-        if (text.isEmpty) return;
-        result.add(
-          literal ? text : text.replaceAll(RegExp(r'[ \t\r\n]+'), ' '),
-        );
-        text = '';
-      }
+  static String _escape(String text) => text
+      .replaceAll('&', '&amp;')
+      .replaceAllMapped(
+        RegExp(r'[\\`*_{}\[\]()#+.!,><|\-]'),
+        (match) => '\\${match[0]}',
+      )
+      .replaceAll('\u2028', '  \n');
+  static List<(String, Object)> _inlineChain(q.Node? node) => [
+    for (final key in ['link', 'bold', 'italic', 'strike', 'code'])
+      if (node?.style.attributes[key]?.value != null &&
+          node?.style.attributes[key]?.value != false)
+        (key, node!.style.attributes[key]!.value as Object),
+  ];
+  static int _common(List<(String, Object)> a, List<(String, Object)> b) {
+    var count = 0;
+    while (count < a.length && count < b.length && a[count] == b[count]) {
+      count++;
+    }
+    return count;
+  }
 
-      for (final child in nodes) {
-        if (child is md.Text) {
-          text += child.textContent;
+  static String _linkDestination(String value) =>
+      value.replaceAllMapped(RegExp(r'[\()]'), (match) => '\\${match[0]}');
+
+  static void _writeInline(q.QuillText text, StringSink out) {
+    if (text.parent?.style.attributes.containsKey('code-block') == true) {
+      out.write(text.value);
+      return;
+    }
+    final chain = _inlineChain(text);
+    String marker((String, Object) entry, bool close) => switch (entry.$1) {
+      'bold' => '**',
+      'italic' => '_',
+      'strike' => '~~',
+      'code' => '`',
+      'link' => close ? '](${_linkDestination(entry.$2.toString())})' : '[',
+      _ => '',
+    };
+    for (
+      var i = _common(chain, _inlineChain(text.previous));
+      i < chain.length;
+      i++
+    ) {
+      out.write(marker(chain[i], false));
+    }
+    final runes = text.value.runes.toList();
+    if (chain.any((e) => e.$1 == 'code')) {
+      out.write(text.value);
+    } else if (runes.isNotEmpty) {
+      String edge(int rune) => rune == 0x2028 ? '  \n' : '&#$rune;';
+      out.write(edge(runes.first));
+      if (runes.length > 2) {
+        out.write(
+          _escape(String.fromCharCodes(runes.sublist(1, runes.length - 1))),
+        );
+      }
+      if (runes.length > 1) out.write(edge(runes.last));
+    }
+    final shared = _common(chain, _inlineChain(text.next));
+    for (var i = chain.length - 1; i >= shared; i--) {
+      out.write(marker(chain[i], true));
+    }
+  }
+
+  /// Compare semantic inline styles, not parser node segmentation or nesting
+  /// order: **_text_** and _**text**_ express the same document.
+  static String _tree(String text) {
+    List<Map<String, Object?>> children(
+      List<md.Node> nodes,
+      Map<String, Object?> styles,
+      bool literal,
+    ) {
+      final result = <Map<String, Object?>>[];
+      void add(Map<String, Object?> item) {
+        if (item.containsKey('text') &&
+            result.isNotEmpty &&
+            result.last.containsKey('text') &&
+            jsonEncode(result.last['styles']) == jsonEncode(item['styles'])) {
+          result.last['text'] = '${result.last['text']}${item['text']}';
         } else {
-          flush();
-          result.add(node(child, literal));
+          result.add(item);
         }
       }
-      flush();
+
+      for (final n in nodes) {
+        if (n is md.Element) {
+          final key = {
+            'strong': 'bold',
+            'em': 'italic',
+            'del': 'strike',
+            'a': 'link',
+          }[n.tag];
+          if (key != null) {
+            final nested = {
+              ...styles,
+              key: n.tag == 'a' ? _sorted(n.attributes) : true,
+            };
+            for (final item in children(n.children ?? [], nested, literal)) {
+              add(item);
+            }
+          } else {
+            add({
+              'tag': n.tag,
+              'attributes': _sorted(n.attributes),
+              'children': children(
+                n.children ?? [],
+                styles,
+                literal || n.tag == 'code' || n.tag == 'pre',
+              ),
+            });
+          }
+        } else {
+          add({
+            'text': literal
+                ? n.textContent
+                : n.textContent.replaceAll(RegExp(r'[ \t\r\n]+'), ' '),
+            'styles': _sorted(styles),
+          });
+        }
+      }
+      if (!literal) {
+        for (final item in result) {
+          if (item.containsKey('text')) {
+            item['text'] = (item['text'] as String).replaceAll(
+              RegExp(r'[ \t\r\n]+'),
+              ' ',
+            );
+          }
+        }
+      }
       return result;
     }
 
-    node = (md.Node n, bool literal) {
-      if (n is md.Element) {
-        final preserve = literal || n.tag == 'pre' || n.tag == 'code';
-        return [
-          n.tag,
-          _sorted(n.attributes),
-          children(n.children ?? <md.Node>[], preserve),
-        ];
-      }
-      return literal
-          ? n.textContent
-          : n.textContent.replaceAll(RegExp(r'[ \t\r\n]+'), ' ');
-    };
-
-    return jsonEncode(children(_parse(text), false));
+    return jsonEncode(children(_parse(text), {}, false));
   }
 
   static Object? _sorted(Object? value) {
@@ -147,7 +265,85 @@ class VisualMarkdown {
       data is String ||
       (data is Map && data.length == 1 && data['divider'] == 'hr');
 
-  static String _signature(q.Document value) {
+  /// Markdown emphasis cannot enclose leading/trailing spaces. Move only those
+  /// spaces outside emphasis; text and formatting of every non-space stay intact.
+  static Delta _markdownDelta(q.Document value, {bool removeEmpty = false}) {
+    final tokens = <(Object, Map<String, dynamic>)>[];
+    for (final op in value.toDelta().toList()) {
+      final data = op.data;
+      if (data is! String) {
+        tokens.add((data!, {...?op.attributes}));
+        continue;
+      }
+      for (final match in RegExp(r'\n|[^\S\n]+|[^\s]+').allMatches(data)) {
+        tokens.add((match.group(0)!, {...?op.attributes}));
+      }
+    }
+    for (final key in ['bold', 'italic', 'strike']) {
+      var start = 0;
+      while (start < tokens.length) {
+        if (tokens[start].$1 == '\n' || tokens[start].$2[key] != true) {
+          start++;
+          continue;
+        }
+        var end = start + 1;
+        while (end < tokens.length &&
+            tokens[end].$1 != '\n' &&
+            tokens[end].$2[key] == true) {
+          end++;
+        }
+        bool blank(int i) =>
+            tokens[i].$1 is String && (tokens[i].$1 as String).trim().isEmpty;
+        for (var i = start; i < end && blank(i); i++) {
+          tokens[i].$2.remove(key);
+        }
+        for (var i = end - 1; i >= start && blank(i); i--) {
+          tokens[i].$2.remove(key);
+        }
+        start = end;
+      }
+    }
+    final result = Delta();
+    var line = <(Object, Map<String, dynamic>)>[];
+    for (final token in tokens) {
+      if (token.$1 != '\n') {
+        line.add(token);
+        continue;
+      }
+      // Leading ASCII indentation in an ordinary paragraph is Markdown layout,
+      // not text. Keep literal inline/code-block whitespace untouched.
+      if (!token.$2.containsKey('code-block')) {
+        while (line.isNotEmpty &&
+            line.first.$1 is String &&
+            !line.first.$2.containsKey('code') &&
+            RegExp(r'^[ \t]+$').hasMatch(line.first.$1 as String)) {
+          line.removeAt(0);
+        }
+      }
+      final empty =
+          token.$2.isEmpty &&
+          line.every(
+            (t) =>
+                t.$1 is String &&
+                (t.$1 as String).trim().isEmpty &&
+                !(t.$1 as String).contains('\u2028') &&
+                t.$2.isEmpty,
+          );
+      if (!removeEmpty || !empty) {
+        for (final t in [...line, token]) {
+          result.insert(t.$1, t.$2.isEmpty ? null : t.$2);
+        }
+      }
+      line = [];
+    }
+    for (final t in line) {
+      result.insert(t.$1, t.$2.isEmpty ? null : t.$2);
+    }
+    if (result.isEmpty) result.insert('\n');
+    return result;
+  }
+
+  static String _signature(q.Document value, {bool normaliseEmpty = true}) {
     final runs = <(StringBuffer, String, bool)>[];
     void append(String text, String attributes, {bool literal = false}) {
       if (text.isEmpty) return;
@@ -188,7 +384,10 @@ class VisualMarkdown {
       'script',
       'small',
     };
-    for (final operation in value.toDelta().toList()) {
+    for (final operation in _markdownDelta(
+      value,
+      removeEmpty: normaliseEmpty,
+    ).toList()) {
       final data = operation.data;
       if (data is! String) {
         append(
@@ -232,25 +431,32 @@ class VisualMarkdown {
   }
 
   String export(q.Document value) {
-    if (_signature(value) == _originalDelta) return original;
+    if (_signature(value, normaliseEmpty: false) == _originalDelta) {
+      return original;
+    }
     if (value.toDelta().toList().any((op) => !_supportedInsert(op.data))) {
       throw const FormatException(
         'Вставка новых изображений и объектов пока не поддерживается. Отмените вставку.',
       );
     }
-    final output = _exporter.convert(value.toDelta());
-    final restoredDelta = _importer.convert(output);
-    final restored = restoredDelta.isEmpty
-        ? q.Document()
-        : q.Document.fromDelta(restoredDelta);
-    final restoredSignature = _signature(restored);
-    restored.close();
-    if (_signature(value) != restoredSignature) {
-      throw const FormatException(
-        'Это форматирование нельзя безопасно сохранить в Markdown. Отмените последнее изменение.',
-      );
+    return _convert(value);
+  }
+
+  static String _convert(q.Document value) {
+    final delta = _markdownDelta(value);
+    for (final exporter in [_exporter, _boundaryExporter]) {
+      final output = exporter.convert(delta);
+      final restoredDelta = _importer.convert(output);
+      final restored = restoredDelta.isEmpty
+          ? q.Document()
+          : q.Document.fromDelta(restoredDelta);
+      final restoredSignature = _signature(restored);
+      restored.close();
+      if (_signature(value) == restoredSignature) return output;
     }
-    return output;
+    throw const FormatException(
+      'Это форматирование нельзя безопасно сохранить в Markdown. Отмените последнее изменение.',
+    );
   }
 }
 
