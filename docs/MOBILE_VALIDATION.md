@@ -1,3 +1,5 @@
+Latest UX/editor verification: [2026-10-19](MOBILE_UX_VALIDATION_2026-10-19.md).
+
 # Mobile refinement validation
 
 Completed: 2026-10-14. Branch `mobile`, existing separate worktree

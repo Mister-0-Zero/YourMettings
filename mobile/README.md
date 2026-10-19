@@ -107,7 +107,7 @@ navigation inset so they remain reachable on phones with three-button navigation
   detailed, six focus chips, and optional instructions (2000 characters).
   Options persist with drafts and accepted-operation metadata. Network replay
   retains the original payload and key; explicit generation retry uses the known ID.
-- One Edit action opens the Markdown editor; the top checkmark flushes pending
+- One Edit action opens the visual editor; the top checkmark flushes pending
   autosave and returns to formatted view. Failed saves keep the editor open.
 - Folder deletion requires confirmation and uses `mode=with_contents&confirm=true`.
   Active-generation conflicts keep the tree intact and explain when to retry.
@@ -117,3 +117,25 @@ navigation inset so they remain reachable on phones with three-button navigation
 
 See `../docs/MOBILE_VALIDATION.md` for the distinction between automated, real API
 and actual HONOR checks, including the USB transport limitation.
+
+
+## Visual editing and result UX (2026-10-19)
+
+Summary editing uses Flutter Quill with a guarded Markdown conversion adapter.
+Select text and use the compact pinned toolbar for bold/italic, headings, lists,
+links and undo/redo. The checkmark saves and returns directly to the formatted
+result. Long results keep Edit/Accept above the scrolling document; Accept returns
+to the New meeting methods screen without deleting the server summary.
+
+Tables and unsupported constructs appear as locked inserts and preserve their
+original source. Supported surrounding text is visually editable; a paragraph
+can be added after an insert. Existing hard Markdown breaks, images and some
+cross-block HTML/reference groups remain protected. New unsupported rich content
+blocks saving rather than being silently removed. Ordinary whitespace/delimiters
+in changed sections can be normalized to Markdown.
+
+Profile also persists “Не спрашивать подтверждение при удалении папок”, default
+off. This skips only the dialog after an explicit Delete folder action.
+
+See [the 2026-10-19 validation report](../docs/MOBILE_UX_VALIDATION_2026-10-19.md)
+for supported constructs, safety boundaries, tests, physical-phone checks and APKs.
