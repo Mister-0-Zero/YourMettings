@@ -1,3 +1,5 @@
+import '../../services/external_links.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
@@ -410,6 +412,8 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                       ] else
                         MarkdownBody(
                           data: editor.content,
+                          onTapLink: (_, href, _) =>
+                              openExternalLink(context, href),
                           selectable: true,
                           styleSheet:
                               MarkdownStyleSheet.fromTheme(

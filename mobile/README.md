@@ -153,3 +153,15 @@ restores the latest successfully saved snapshot (autosave remains enabled).
 The meeting management menu is available only in the formatted view.
 
 See [the editor-fix validation](../docs/MOBILE_EDITOR_FIX_VALIDATION_2026-10-19.md).
+
+
+## Save/link/transcript correction (2026-10-20)
+
+Common paragraph edits and overlapping inline styles now survive Markdown export
+and reopening. Save progress/errors stay above the scrolling editor. Markdown
+links open through the system handler; Quill's Open link action uses the same
+handler. A down-arrow over long transcripts jumps to folders and processing
+settings, dismisses the keyboard and hides after reaching that area.
+
+See [the 2026-10-20 validation](../docs/MOBILE_SAVE_FIX_2026-10-20.md) for the
+106 tests, real API and HONOR checks, normalization boundaries and the tested APK.

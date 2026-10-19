@@ -1,3 +1,4 @@
+import '../../services/external_links.dart';
 import '../../models/processing_options.dart';
 import '../meetings/summary_page.dart';
 
@@ -22,6 +23,9 @@ class TranscriptPage extends StatefulWidget {
 
 class _TranscriptPageState extends State<TranscriptPage> {
   final _form = GlobalKey<FormState>();
+  final _settingsAnchor = GlobalKey();
+  final _pageScroll = ScrollController();
+  bool _settingsReached = false;
   late final _text = TextEditingController(text: widget.controller.draft.text);
   late final _title = TextEditingController(
     text: widget.controller.draft.title,
@@ -32,6 +36,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
   void initState() {
     super.initState();
     widget.controller.addListener(_operationChanged);
+    _pageScroll.addListener(_updateJumpVisibility);
   }
 
   void _operationChanged() {
@@ -112,6 +117,31 @@ class _TranscriptPageState extends State<TranscriptPage> {
     }
   }
 
+  void _updateJumpVisibility() {
+    if (!mounted) return;
+    final box = _settingsAnchor.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
+    final bottom =
+        MediaQuery.sizeOf(context).height -
+        MediaQuery.viewInsetsOf(context).bottom -
+        MediaQuery.viewPaddingOf(context).bottom;
+    final reached =
+        box.localToGlobal(Offset.zero).dy + box.size.height <= bottom;
+    if (_settingsReached != reached) setState(() => _settingsReached = reached);
+  }
+
+  Future<void> _scrollToSettings() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await WidgetsBinding.instance.endOfFrame;
+    final anchor = _settingsAnchor.currentContext;
+    if (anchor == null || !anchor.mounted) return;
+    await Scrollable.ensureVisible(
+      anchor,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+    );
+  }
+
   Future<void> _folders() async {
     final selected = await chooseFolders(
       context,
@@ -147,6 +177,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
   @override
   void dispose() {
     widget.controller.removeListener(_operationChanged);
+    _pageScroll.dispose();
     _instructions.dispose();
     _text.dispose();
     _title.dispose();
@@ -156,6 +187,24 @@ class _TranscriptPageState extends State<TranscriptPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Транскрипт встречи')),
+    floatingActionButton: AnimatedBuilder(
+      animation: Listenable.merge([widget.controller, _text]),
+      builder: (context, _) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _updateJumpVisibility(),
+        );
+        return !widget.controller.hasOperation &&
+                _text.text.trim().isNotEmpty &&
+                !_settingsReached
+            ? FloatingActionButton.small(
+                heroTag: 'transcript-settings',
+                tooltip: 'К папкам и настройкам',
+                onPressed: _scrollToSettings,
+                child: const Icon(Icons.arrow_downward),
+              )
+            : const SizedBox.shrink();
+      },
+    ),
     body: AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
@@ -166,189 +215,199 @@ class _TranscriptPageState extends State<TranscriptPage> {
         final folders = flattenFolders(controller.folders);
         return Form(
           key: _form,
-          child: ListView(
+          child: SingleChildScrollView(
+            controller: _pageScroll,
             padding: EdgeInsets.fromLTRB(
               20,
               20,
               20,
               20 + MediaQuery.viewPaddingOf(context).bottom,
             ),
-            children: [
-              const Text(
-                'Черновик сохраняется на этом устройстве до принятия сервером. Используйте только неконфиденциальные тестовые данные.',
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _title,
-                onChanged: (_) => _save(),
-                maxLength: 200,
-                decoration: const InputDecoration(
-                  labelText: 'Название встречи',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Черновик сохраняется на этом устройстве до принятия сервером. Используйте только неконфиденциальные тестовые данные.',
                 ),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Введите название встречи'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _importing ? null : _import,
-                icon: const Icon(Icons.upload_file),
-                label: const Text('Выбрать файл .txt'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _text,
-                onChanged: (_) => _save(),
-                minLines: 8,
-                maxLines: 18,
-                decoration: const InputDecoration(
-                  labelText: 'Текст транскрипта',
-                  hintText: 'Вставьте текст или загрузите файл .txt',
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _title,
+                  onChanged: (_) => _save(),
+                  maxLength: 200,
+                  decoration: const InputDecoration(
+                    labelText: 'Название встречи',
+                  ),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Введите название встречи'
+                      : null,
                 ),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Добавьте текст транскрипта'
-                    : value.runes.length > 100000
-                    ? 'Максимум 100 000 символов'
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: _folders,
-                icon: const Icon(Icons.folder_outlined),
-                label: const Text('Выбрать или создать папки'),
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final id in _folderIds)
-                    Chip(
-                      label: Text(
-                        folders
-                                .where((entry) => entry.folder.id == id)
-                                .firstOrNull
-                                ?.path ??
-                            'Выбранная папка',
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _importing ? null : _import,
+                  icon: const Icon(Icons.upload_file),
+                  label: const Text('Выбрать файл .txt'),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _text,
+                  onChanged: (_) => _save(),
+                  minLines: 8,
+                  maxLines: 18,
+                  decoration: const InputDecoration(
+                    labelText: 'Текст транскрипта',
+                    hintText: 'Вставьте текст или загрузите файл .txt',
+                  ),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Добавьте текст транскрипта'
+                      : value.runes.length > 100000
+                      ? 'Максимум 100 000 символов'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  key: _settingsAnchor,
+                  onPressed: _folders,
+                  icon: const Icon(Icons.folder_outlined),
+                  label: const Text('Выбрать или создать папки'),
+                ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final id in _folderIds)
+                      Chip(
+                        label: Text(
+                          folders
+                                  .where((entry) => entry.folder.id == id)
+                                  .firstOrNull
+                                  ?.path ??
+                              'Выбранная папка',
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  title: const Text('Настройки обработки'),
+                  subtitle: const Text(
+                    'Подробность и акценты итогового документа',
+                  ),
+                  childrenPadding: const EdgeInsets.all(16),
+                  children: [
+                    DropdownButtonFormField<String>(
+                      initialValue: _options.detailLevel,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Детализация summary',
+                        helperText:
+                            'Определяет подробность итогового документа',
+                        helperMaxLines: 3,
+                      ),
+                      items: ProcessingOptions.detailLevels.entries
+                          .map(
+                            (e) => DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(
+                            () => _options = _options.copyWith(
+                              detailLevel: value,
+                            ),
+                          );
+                          _save();
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Акценты обработки',
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ExpansionTile(
-                title: const Text('Настройки обработки'),
-                subtitle: const Text(
-                  'Подробность и акценты итогового документа',
-                ),
-                childrenPadding: const EdgeInsets.all(16),
-                children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: _options.detailLevel,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Детализация summary',
-                      helperText: 'Определяет подробность итогового документа',
-                      helperMaxLines: 3,
-                    ),
-                    items: ProcessingOptions.detailLevels.entries
-                        .map(
-                          (e) => DropdownMenuItem(
-                            value: e.key,
-                            child: Text(e.value),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        for (final entry
+                            in ProcessingOptions.focusLabels.entries)
+                          FilterChip(
+                            label: Text(entry.value),
+                            selected: _options.focusAreas.contains(entry.key),
+                            onSelected: (selected) {
+                              final areas = {..._options.focusAreas};
+                              if (selected) {
+                                areas.add(entry.key);
+                              } else {
+                                areas.remove(entry.key);
+                              }
+                              setState(
+                                () => _options = _options.copyWith(
+                                  focusAreas: areas.toList(),
+                                ),
+                              );
+                              _save();
+                            },
                           ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(
-                          () =>
-                              _options = _options.copyWith(detailLevel: value),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Дополнительные указания для ИИ'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _instructions,
+                      minLines: 3,
+                      maxLines: 6,
+                      maxLength: 2000,
+                      decoration: const InputDecoration(
+                        hintText: 'Отдельно выдели поручения конкретным сотрудникам, сохрани технические подробности обсуждения',
+                      ),
+                      validator: (value) =>
+                          (value ?? '').trim().runes.length > 2000
+                          ? 'Максимум 2000 символов'
+                          : RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+                                .hasMatch(value ?? '')
+                          ? 'Удалите управляющие символы из указаний'
+                          : null,
+                      onChanged: (value) {
+                        _options = _options.copyWith(
+                          additionalInstructions: value,
                         );
                         _save();
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Акценты обработки',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      for (final entry in ProcessingOptions.focusLabels.entries)
-                        FilterChip(
-                          label: Text(entry.value),
-                          selected: _options.focusAreas.contains(entry.key),
-                          onSelected: (selected) {
-                            final areas = {..._options.focusAreas};
-                            if (selected) {
-                              areas.add(entry.key);
-                            } else {
-                              areas.remove(entry.key);
-                            }
-                            setState(
-                              () => _options = _options.copyWith(
-                                focusAreas: areas.toList(),
-                              ),
-                            );
-                            _save();
-                          },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Дополнительные указания для ИИ'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: _instructions,
-                    minLines: 3,
-                    maxLines: 6,
-                    maxLength: 2000,
-                    decoration: const InputDecoration(
-                      hintText: 'Отдельно выдели поручения конкретным сотрудникам, сохрани технические подробности обсуждения',
-                    ),
-                    validator: (value) =>
-                        (value ?? '').trim().runes.length > 2000
-                        ? 'Максимум 2000 символов'
-                        : RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
-                              .hasMatch(value ?? '')
-                        ? 'Удалите управляющие символы из указаний'
-                        : null,
-                    onChanged: (value) {
-                      _options = _options.copyWith(
-                        additionalInstructions: value,
-                      );
-                      _save();
-                    },
-                  ),
-                ],
-              ),
-              if (_inputError != null ||
-                  controller.error != null ||
-                  controller.storageError != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    _inputError ?? controller.storageError ?? controller.error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
+                  ],
                 ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: controller.working ? null : _submit,
-                icon: const Icon(Icons.auto_awesome_outlined),
-                label: const Text('Обработать'),
-              ),
-            ],
+                if (_inputError != null ||
+                    controller.error != null ||
+                    controller.storageError != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      _inputError ??
+                          controller.storageError ??
+                          controller.error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: controller.working ? null : _submit,
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                  label: const Text('Обработать'),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -453,6 +512,7 @@ class ProcessingPanel extends StatelessWidget {
                   const SizedBox(height: 20),
                   MarkdownBody(
                     data: result.content,
+                    onTapLink: (_, href, _) => openExternalLink(context, href),
                     selectable: true,
                     styleSheet: MarkdownStyleSheet.fromTheme(
                       Theme.of(context),

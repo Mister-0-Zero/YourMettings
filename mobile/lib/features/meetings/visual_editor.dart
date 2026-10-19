@@ -1,3 +1,5 @@
+import '../../services/external_links.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_quill/flutter_quill.dart' as q;
@@ -105,6 +107,7 @@ class VisualEditorBody extends StatelessWidget {
                   const SizedBox(height: 8),
                   MarkdownBody(
                     data: section.source,
+                    onTapLink: (_, href, _) => openExternalLink(context, href),
                     selectable: true,
                     styleSheet: MarkdownStyleSheet.fromTheme(
                       Theme.of(context),
@@ -121,12 +124,13 @@ class VisualEditorBody extends StatelessWidget {
               controller: section.controller!,
               focusNode: section.focus,
               scrollController: section.scroll,
-              config: const q.QuillEditorConfig(
+              config: q.QuillEditorConfig(
+                onLaunchUrl: (url) => openExternalLink(context, url),
                 scrollable: false,
-                embedBuilders: [_DividerBuilder()],
-                unknownEmbedBuilder: _UnsupportedEmbedBuilder(),
+                embedBuilders: const [_DividerBuilder()],
+                unknownEmbedBuilder: const _UnsupportedEmbedBuilder(),
                 minHeight: 64,
-                padding: EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 placeholder: 'Текст встречи…',
                 enableScribble: false,
               ),
