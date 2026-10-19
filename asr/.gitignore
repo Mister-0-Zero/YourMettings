@@ -1,0 +1,15 @@
+.venv/
+vendor/
+models/
+audio/
+results/
+.cache/
+tools/
+*.ckpt
+*.onnx
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.mp4
