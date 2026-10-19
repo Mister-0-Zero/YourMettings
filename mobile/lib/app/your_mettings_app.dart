@@ -1,4 +1,8 @@
 import 'appearance.dart';
+
+import 'package:flutter_quill/flutter_quill.dart'
+    show FlutterQuillLocalizations;
+
 import '../features/meetings/meetings_page.dart';
 import '../features/new_meeting/meeting_controller.dart';
 import '../features/new_meeting/transcript_page.dart';
@@ -33,7 +37,10 @@ class _YourMettingsAppState extends State<YourMettingsApp> {
       debugShowCheckedModeBanner: false,
       locale: const Locale('ru'),
       supportedLocales: const [Locale('ru')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      localizationsDelegates: const [
+        FlutterQuillLocalizations.delegate,
+        ...GlobalMaterialLocalizations.delegates,
+      ],
       theme: _appearance.theme(Brightness.light),
       darkTheme: _appearance.theme(Brightness.dark),
       themeMode: _appearance.themeMode,

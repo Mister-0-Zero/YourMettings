@@ -5,6 +5,8 @@ import '../../models/api_models.dart';
 import '../new_meeting/meeting_controller.dart';
 import 'folder_picker.dart';
 import 'summary_editor.dart';
+import 'visual_document.dart';
+import 'visual_editor.dart';
 
 class SummaryPageView extends StatefulWidget {
   const SummaryPageView({
@@ -24,21 +26,45 @@ class _SummaryPageViewState extends State<SummaryPageView> {
   SummaryEditor? _editor;
   late Future<void> _loading = _load();
   final _title = TextEditingController();
-  final _content = TextEditingController();
+  VisualDocument? _visual;
   late bool _editing = widget.startEditing;
   bool _busy = false;
   bool _allowExit = false;
   Future<void> _load() async {
     final latest = await widget.controller.api.summary(widget.summary.id);
+    if (!mounted) return;
+    _visual?.dispose();
     _editor?.dispose();
     _editor = SummaryEditor(widget.controller.api, latest);
     _title.text = latest.title;
-    _content.text = latest.content;
+    _visual = VisualDocument(
+      latest.content,
+      onChanged: (content, error) {
+        if (error != null) {
+          _editor!.blockContentSave(error);
+        } else {
+          _editor!.edit(content: content!);
+        }
+      },
+    );
+  }
+
+  Future<bool> _flush() async {
+    final editor = _editor;
+    if (editor == null) return true;
+    if (_editing) {
+      try {
+        editor.edit(content: _visual!.export());
+      } on FormatException catch (e) {
+        editor.blockContentSave(e.message);
+      }
+    }
+    return editor.flush();
   }
 
   Future<void> _leave() async {
     if (_busy || !mounted) return;
-    final ok = await _editor?.flush() ?? true;
+    final ok = await _flush();
     if (!ok || !mounted) return;
     setState(() => _allowExit = true);
     await WidgetsBinding.instance.endOfFrame;
@@ -49,7 +75,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      if (await _editor!.flush() && mounted) {
+      if (await _flush() && mounted) {
         if (widget.startEditing) {
           setState(() => _allowExit = true);
           await WidgetsBinding.instance.endOfFrame;
@@ -64,7 +90,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
   }
 
   Future<void> _changeFolders() async {
-    if (!await _editor!.flush() || !mounted) return;
+    if (!await _flush() || !mounted) return;
     final selected = await chooseFolders(
       context,
       widget.controller,
@@ -109,7 +135,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
         ],
       ),
     );
-    if (confirmed != true || !mounted || !await _editor!.flush()) return;
+    if (confirmed != true || !mounted || !await _flush()) return;
     setState(() => _busy = true);
     try {
       await widget.controller.api.deleteSummary(widget.summary.id);
@@ -147,7 +173,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
   void dispose() {
     _editor?.dispose();
     _title.dispose();
-    _content.dispose();
+    _visual?.dispose();
     super.dispose();
   }
 
@@ -231,77 +257,80 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                 ),
               ],
             ),
-            body: ListView(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                20,
-                20,
-                20 + MediaQuery.viewPaddingOf(context).bottom,
-              ),
+            body: Column(
               children: [
-                if (_busy || editor.saving) const LinearProgressIndicator(),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        editor.error != null
-                            ? 'Изменения не сохранены'
-                            : editor.saving
-                            ? 'Сохраняем…'
-                            : editor.dirty
-                            ? 'Несохранённые изменения'
-                            : 'Все изменения сохранены',
-                      ),
+                if (_editing)
+                  VisualEditorToolbar(document: _visual!, enabled: !_busy),
+                Expanded(
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      20,
+                      20,
+                      20 + MediaQuery.viewPaddingOf(context).bottom,
                     ),
-                    if (editor.dirty || editor.error != null)
-                      TextButton(
-                        onPressed: editor.saving || _busy ? null : editor.flush,
-                        child: const Text('Сохранить'),
+                    children: [
+                      if (_busy || editor.saving)
+                        const LinearProgressIndicator(),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              editor.error != null
+                                  ? 'Изменения не сохранены'
+                                  : editor.saving
+                                  ? 'Сохраняем…'
+                                  : editor.dirty
+                                  ? 'Несохранённые изменения'
+                                  : 'Все изменения сохранены',
+                            ),
+                          ),
+                          if (editor.dirty || editor.error != null)
+                            TextButton(
+                              onPressed: editor.saving || _busy ? null : _flush,
+                              child: const Text('Сохранить'),
+                            ),
+                        ],
                       ),
-                  ],
+                      if (editor.error != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Text(
+                            editor.error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      if (_editing) ...[
+                        TextField(
+                          controller: _title,
+                          maxLength: 200,
+                          enabled: !_busy,
+                          decoration: const InputDecoration(
+                            labelText: 'Название встречи',
+                          ),
+                          onChanged: (value) => editor.edit(title: value),
+                        ),
+                        const SizedBox(height: 16),
+                        VisualEditorBody(document: _visual!, enabled: !_busy),
+                      ] else
+                        MarkdownBody(
+                          data: editor.content,
+                          selectable: true,
+                          styleSheet:
+                              MarkdownStyleSheet.fromTheme(
+                                Theme.of(context),
+                              ).copyWith(
+                                tableColumnWidth: const IntrinsicColumnWidth(),
+                              ),
+                          imageBuilder: (uri, title, alt) =>
+                              Text(alt ?? 'Изображение'),
+                        ),
+                    ],
+                  ),
                 ),
-                if (editor.error != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      editor.error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                if (_editing) ...[
-                  TextField(
-                    controller: _title,
-                    maxLength: 200,
-                    enabled: !_busy,
-                    decoration: const InputDecoration(
-                      labelText: 'Название встречи',
-                    ),
-                    onChanged: (value) => editor.edit(title: value),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _content,
-                    minLines: 12,
-                    maxLines: null,
-                    enabled: !_busy,
-                    decoration: const InputDecoration(
-                      labelText: 'Содержание (Markdown)',
-                    ),
-                    onChanged: (value) => editor.edit(content: value),
-                  ),
-                ] else
-                  MarkdownBody(
-                    data: editor.content,
-                    selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(
-                      Theme.of(context),
-                    ).copyWith(tableColumnWidth: const IntrinsicColumnWidth()),
-                    imageBuilder: (uri, title, alt) =>
-                        Text(alt ?? 'Изображение'),
-                  ),
               ],
             ),
           ),

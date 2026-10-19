@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter_quill/flutter_quill.dart' as q;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -60,6 +62,7 @@ void main() {
       });
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: const [q.FlutterQuillLocalizations.delegate],
           home: Scaffold(
             body: AnimatedBuilder(
               animation: controller,
@@ -72,11 +75,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Редактировать'));
       await tester.pumpAndSettle();
-      expect(find.byType(TextField), findsNWidgets(2));
-      await tester.enterText(
-        find.byType(TextField).last,
-        '## Обновлено\n**Поручение:** проверить приложение.',
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.byType(q.QuillEditor), findsOneWidget);
+      final visual = tester
+          .widget<q.QuillEditor>(find.byType(q.QuillEditor))
+          .controller;
+      visual.replaceText(
+        0,
+        visual.document.length - 1,
+        'Обновлено',
+        const TextSelection.collapsed(offset: 9),
       );
+      await tester.pump();
       await tester.tap(find.byTooltip('Сохранить изменения'));
       await tester.pumpAndSettle();
       expect(methods.where((method) => method == 'PATCH').length, 1);
@@ -106,6 +116,7 @@ void main() {
     });
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: const [q.FlutterQuillLocalizations.delegate],
         home: SummaryPageView(
           controller: controller,
           summary: MeetingSummary.fromJson(summaryJson),
@@ -117,7 +128,8 @@ void main() {
     await tester.enterText(find.byType(TextField).first, 'Новое название');
     await tester.tap(find.byTooltip('Сохранить изменения'));
     await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsNWidgets(2));
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(q.QuillEditor), findsOneWidget);
     expect(
       tester.widget<TextField>(find.byType(TextField).first).controller!.text,
       'Новое название',

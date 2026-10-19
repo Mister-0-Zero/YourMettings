@@ -13,7 +13,10 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_markdown_plus: ^1.0.12
+  flutter_quill: ^11.6.0
   http: ^1.6.0
+  markdown: ^7.3.1
+  markdown_quill: ^4.3.0
   path_provider: ^2.1.6
 
 dev_dependencies:

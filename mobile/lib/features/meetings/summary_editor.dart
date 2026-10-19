@@ -22,6 +22,7 @@ class SummaryEditor extends ChangeNotifier {
   String _savedTitle;
   String _savedContent;
   String? error;
+  String? _contentError;
   bool saving = false;
   bool _disposed = false;
   Timer? _timer;
@@ -33,15 +34,33 @@ class SummaryEditor extends ChangeNotifier {
 
   void edit({String? title, String? content}) {
     if (title != null) this.title = title;
-    if (content != null) this.content = content;
+    if (content != null) {
+      this.content = content;
+      if (_contentError != null) error = null;
+      _contentError = null;
+    }
     _timer?.cancel();
-    _timer = Timer(debounce, () => unawaited(flush()));
+    if (_contentError == null) {
+      _timer = Timer(debounce, () => unawaited(flush()));
+    }
+    _notify();
+  }
+
+  void blockContentSave(String message) {
+    _timer?.cancel();
+    _contentError = message;
+    error = message;
     _notify();
   }
 
   Future<bool> flush() async {
     _timer?.cancel();
     while (!_disposed) {
+      if (_contentError != null) {
+        error = _contentError;
+        _notify();
+        return false;
+      }
       final active = _inFlight;
       if (active != null) {
         if (!await active) return false;
