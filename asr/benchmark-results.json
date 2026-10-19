@@ -1,0 +1,153 @@
+{
+  "date": "2026-10-20",
+  "upstream_commit": "7447938d791c4f3e643386ee22c33777004293a5",
+  "official_regression_exact_match": true,
+  "longform_tested": false,
+  "rows": [
+    {
+      "case": "example-3s",
+      "model": "v3_e2e_rnnt",
+      "audio_seconds": 3.0,
+      "decode_seconds": 0.030684299999848008,
+      "load_seconds": 1.6622886000041035,
+      "runs": [
+        {
+          "seconds": 0.8051861000058125,
+          "rtf": 0.26839536666860414
+        },
+        {
+          "seconds": 0.11920320000353968,
+          "rtf": 0.03973440000117989
+        },
+        {
+          "seconds": 0.1296864000032656,
+          "rtf": 0.04322880000108853
+        }
+      ],
+      "longform": false,
+      "total_seconds_before_save": 5.267881700005091,
+      "device": "cuda",
+      "torch": "2.10.0+cu126",
+      "cuda": "12.6",
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "peak_allocated_mib": 469.52685546875,
+      "peak_reserved_mib": 488.0
+    },
+    {
+      "case": "example-7s",
+      "model": "v3_e2e_rnnt",
+      "audio_seconds": 7.0,
+      "decode_seconds": 0.027804199999081902,
+      "load_seconds": 1.6445928999964963,
+      "runs": [
+        {
+          "seconds": 0.8536716000016895,
+          "rtf": 0.12195308571452708
+        },
+        {
+          "seconds": 0.19779719999496592,
+          "rtf": 0.028256742856423704
+        },
+        {
+          "seconds": 0.19934359999751905,
+          "rtf": 0.02847765714250272
+        }
+      ],
+      "longform": false,
+      "total_seconds_before_save": 5.382294099996216,
+      "device": "cuda",
+      "torch": "2.10.0+cu126",
+      "cuda": "12.6",
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "peak_allocated_mib": 469.94189453125,
+      "peak_reserved_mib": 490.0
+    },
+    {
+      "case": "example",
+      "model": "v3_e2e_rnnt",
+      "audio_seconds": 11.29,
+      "decode_seconds": 0.028866499997093342,
+      "load_seconds": 1.6595493999993778,
+      "runs": [
+        {
+          "seconds": 1.0067790999964927,
+          "rtf": 0.0891744109828603
+        },
+        {
+          "seconds": 0.30546570000296924,
+          "rtf": 0.027056306466162024
+        },
+        {
+          "seconds": 0.29857410000113305,
+          "rtf": 0.026445890168390884
+        }
+      ],
+      "longform": false,
+      "total_seconds_before_save": 5.734410400000343,
+      "device": "cuda",
+      "torch": "2.10.0+cu126",
+      "cuda": "12.6",
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "peak_allocated_mib": 470.38623046875,
+      "peak_reserved_mib": 494.0
+    },
+    {
+      "case": "book-cvet",
+      "model": "v3_e2e_rnnt",
+      "audio_seconds": 24.0,
+      "decode_seconds": 0.027844199998071417,
+      "load_seconds": 1.617558600002667,
+      "runs": [
+        {
+          "seconds": 1.3681364000003668,
+          "rtf": 0.05700568333334862
+        },
+        {
+          "seconds": 0.606257799998275,
+          "rtf": 0.025260741666594793
+        },
+        {
+          "seconds": 0.5525976999997511,
+          "rtf": 0.023024904166656295
+        }
+      ],
+      "longform": false,
+      "total_seconds_before_save": 6.631647100002738,
+      "device": "cuda",
+      "torch": "2.10.0+cu126",
+      "cuda": "12.6",
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "peak_allocated_mib": 473.18359375,
+      "peak_reserved_mib": 494.0
+    },
+    {
+      "case": "book-opeka",
+      "model": "v3_e2e_rnnt",
+      "audio_seconds": 24.0,
+      "decode_seconds": 0.029911300000094343,
+      "load_seconds": 1.5951243000017712,
+      "runs": [
+        {
+          "seconds": 1.197860699998273,
+          "rtf": 0.049910862499928044
+        },
+        {
+          "seconds": 0.537499600002775,
+          "rtf": 0.02239581666678229
+        },
+        {
+          "seconds": 0.5431406000061543,
+          "rtf": 0.02263085833358976
+        }
+      ],
+      "longform": false,
+      "total_seconds_before_save": 6.352280499995686,
+      "device": "cuda",
+      "torch": "2.10.0+cu126",
+      "cuda": "12.6",
+      "gpu": "NVIDIA GeForce RTX 3090",
+      "peak_allocated_mib": 473.18359375,
+      "peak_reserved_mib": 494.0
+    }
+  ]
+}

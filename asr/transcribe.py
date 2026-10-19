@@ -28,6 +28,9 @@ def configure_ffmpeg():
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description='GigaAM v3 Russian transcription')
     parser.add_argument('--input', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
@@ -35,6 +38,9 @@ def main():
     parser.add_argument('--batch-size', type=int, default=1)
     parser.add_argument('--repeat', type=int, default=1, help='Measured runs with one loaded model')
     args = parser.parse_args()
+    args.input = args.input.resolve()
+    args.output = args.output.resolve()
+    total_started = time.perf_counter()
     try:
         if not args.input.is_file():
             raise ValueError(f'Audio file not found: {args.input}')
@@ -53,11 +59,13 @@ def main():
                 torch.cuda.synchronize()
         with tempfile.TemporaryDirectory(prefix='gigaam-') as folder:
             wav = Path(folder) / 'input.wav'
+            decode_started = time.perf_counter()
             decoded = subprocess.run([ffmpeg, '-nostdin', '-v', 'error', '-i',
                 str(args.input.resolve()), '-ac', '1', '-ar', '16000', '-c:a',
                 'pcm_s16le', str(wav)], capture_output=True, text=True, errors='replace')
             if decoded.returncode:
                 raise ValueError('Unsupported or damaged audio: ' + decoded.stderr[-1500:])
+            decode_seconds = time.perf_counter() - decode_started
             with wave.open(str(wav), 'rb') as audio:
                 duration = audio.getnframes() / audio.getframerate()
             if duration <= 0:
@@ -71,8 +79,11 @@ def main():
                 torch.cuda.reset_peak_memory_stats()
             sync()
             started = time.perf_counter()
+            # SentencePiece on Windows fails on Cyrillic absolute model paths.
+            # This standalone CLI uses an ASCII relative tokenizer path instead.
+            os.chdir(ROOT)
             model = gigaam.load_model('v3_e2e_rnnt', device=args.device,
-                download_root=str(ROOT / 'models'), use_flash=False)
+                download_root='models', use_flash=False)
             sync()
             load_seconds = time.perf_counter() - started
             runs = []
@@ -86,7 +97,9 @@ def main():
                 text = result.text
                 runs.append({'seconds': elapsed, 'rtf': elapsed / duration})
             metrics = {'model': 'v3_e2e_rnnt', 'audio_seconds': duration,
-                'load_seconds': load_seconds, 'runs': runs, 'longform': longform,
+                'decode_seconds': decode_seconds, 'load_seconds': load_seconds,
+                'runs': runs, 'longform': longform,
+                'total_seconds_before_save': time.perf_counter() - total_started,
                 'device': args.device, 'torch': torch.__version__, 'cuda': torch.version.cuda,
                 'gpu': torch.cuda.get_device_name() if args.device == 'cuda' else None,
                 'peak_allocated_mib': torch.cuda.max_memory_allocated()/2**20 if args.device == 'cuda' else None,
@@ -95,6 +108,10 @@ def main():
             temporary = args.output.with_suffix(args.output.suffix + '.tmp')
             temporary.write_text(text + '\n', encoding='utf-8')
             temporary.replace(args.output)
+            if longform:
+                args.output.with_suffix(args.output.suffix + '.segments.json').write_text(
+                    json.dumps([{'start': s.start, 'end': s.end, 'text': s.text}
+                                for s in result], ensure_ascii=False, indent=2), encoding='utf-8')
             args.output.with_suffix(args.output.suffix + '.metrics.json').write_text(
                 json.dumps(metrics, ensure_ascii=False, indent=2), encoding='utf-8')
             print(text)
