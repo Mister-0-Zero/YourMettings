@@ -81,15 +81,6 @@ class VisualDocument extends ChangeNotifier {
     });
   }
 
-  void insertParagraphAfter(VisualSection section) {
-    final added = VisualSection.editable('', VisualMarkdown(''));
-    sections.insert(sections.indexOf(section) + 1, added);
-    _wire(added);
-    active = added;
-    notifyListeners();
-    added.focus.requestFocus();
-  }
-
   final void Function(String? content, String? error) onChanged;
   final List<VisualSection> sections = [];
   VisualSection? active;

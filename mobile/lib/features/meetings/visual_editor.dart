@@ -112,13 +112,6 @@ class VisualEditorBody extends StatelessWidget {
                     imageBuilder: (uri, title, alt) =>
                         Text(alt ?? 'Изображение'),
                   ),
-                  TextButton.icon(
-                    onPressed: enabled
-                        ? () => document.insertParagraphAfter(section)
-                        : null,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Добавить абзац после'),
-                  ),
                 ],
               ),
             )
@@ -130,6 +123,7 @@ class VisualEditorBody extends StatelessWidget {
               scrollController: section.scroll,
               config: const q.QuillEditorConfig(
                 scrollable: false,
+                embedBuilders: [_DividerBuilder()],
                 unknownEmbedBuilder: _UnsupportedEmbedBuilder(),
                 minHeight: 64,
                 padding: EdgeInsets.symmetric(vertical: 8),
@@ -149,4 +143,13 @@ class _UnsupportedEmbedBuilder extends q.EmbedBuilder {
   @override
   Widget build(BuildContext context, q.EmbedContext embedContext) =>
       const Text('Вставленный объект не поддерживается. Отмените вставку.');
+}
+
+class _DividerBuilder extends q.EmbedBuilder {
+  const _DividerBuilder();
+  @override
+  String get key => 'divider';
+  @override
+  Widget build(BuildContext context, q.EmbedContext embedContext) =>
+      const Divider(height: 24);
 }

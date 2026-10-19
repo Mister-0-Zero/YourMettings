@@ -33,6 +33,7 @@ class VisualMarkdown {
       'blockquote',
       'hr',
       'del',
+      'input',
     };
     void check(md.Node n) {
       if (n is md.Element) {
@@ -54,7 +55,7 @@ class VisualMarkdown {
       document.close();
       throw const FormatException('Конвертация меняет структуру Markdown.');
     }
-    if (document.toDelta().toList().any((op) => op.data is! String)) {
+    if (document.toDelta().toList().any((op) => !_supportedInsert(op.data))) {
       document.close();
       throw const FormatException(
         'Встроенный объект сохраняется неизменяемым.',
@@ -69,7 +70,7 @@ class VisualMarkdown {
     extensionSet: md.ExtensionSet.gitHubWeb,
     encodeHtml: false,
   ).parseLines(text.replaceAll('\r\n', '\n').split('\n'));
-  static final _importer = MarkdownToDelta(
+  static final _importer = _MarkdownImporter(
     markdownDocument: md.Document(
       extensionSet: md.ExtensionSet.gitHubWeb,
       encodeHtml: false,
@@ -80,25 +81,56 @@ class VisualMarkdown {
       'h6': (_) => [q.Attribute.h6],
     },
   );
-  static final _exporter = DeltaToMarkdown();
+  static final _exporter = DeltaToMarkdown(
+    customContentHandler: (text, out) {
+      final escaped = StringBuffer();
+      DeltaToMarkdown.escapeSpecialCharacters(text, escaped);
+      out.write(escaped.toString().replaceAll('\u2028', '  \n'));
+    },
+  );
   static String _tree(String text) {
-    Object node(md.Node n, [bool literal = false]) {
+    late Object Function(md.Node, bool) node;
+    // Escaping punctuation changes AST text-node boundaries, not content.
+    // Merge adjacent text before normalizing whitespace; keep every element,
+    // attribute, hard break and literal code boundary in the comparison.
+    List<Object> children(List<md.Node> nodes, bool literal) {
+      final result = <Object>[];
+      var text = '';
+      void flush() {
+        if (text.isEmpty) return;
+        result.add(
+          literal ? text : text.replaceAll(RegExp(r'[ \t\r\n]+'), ' '),
+        );
+        text = '';
+      }
+
+      for (final child in nodes) {
+        if (child is md.Text) {
+          text += child.textContent;
+        } else {
+          flush();
+          result.add(node(child, literal));
+        }
+      }
+      flush();
+      return result;
+    }
+
+    node = (md.Node n, bool literal) {
       if (n is md.Element) {
         final preserve = literal || n.tag == 'pre' || n.tag == 'code';
         return [
           n.tag,
           _sorted(n.attributes),
-          (n.children ?? <md.Node>[])
-              .map((child) => node(child, preserve))
-              .toList(),
+          children(n.children ?? <md.Node>[], preserve),
         ];
       }
       return literal
           ? n.textContent
           : n.textContent.replaceAll(RegExp(r'[ \t\r\n]+'), ' ');
-    }
+    };
 
-    return jsonEncode(_parse(text).map(node).toList());
+    return jsonEncode(children(_parse(text), false));
   }
 
   static Object? _sorted(Object? value) {
@@ -110,6 +142,10 @@ class VisualMarkdown {
     if (value is List) return value.map(_sorted).toList();
     return value;
   }
+
+  static bool _supportedInsert(Object? data) =>
+      data is String ||
+      (data is Map && data.length == 1 && data['divider'] == 'hr');
 
   static String _signature(q.Document value) {
     final runs = <(StringBuffer, String, bool)>[];
@@ -155,7 +191,12 @@ class VisualMarkdown {
     for (final operation in value.toDelta().toList()) {
       final data = operation.data;
       if (data is! String) {
-        return 'unsupported-embed:${jsonEncode(value.toDelta().toJson())}';
+        append(
+          '\uFFFC',
+          'embed:${jsonEncode([data, operation.attributes])}',
+          literal: true,
+        );
+        continue;
       }
       final attributes = {...?operation.attributes}
         ..removeWhere(
@@ -171,7 +212,7 @@ class VisualMarkdown {
       final newline = jsonEncode(_sorted(lineAttributes));
       // Markdown ignores normal trailing paragraph spaces. IMEs report them
       // after every typed word; they must not trigger a false data-loss alarm.
-      // Code whitespace and existing hard breaks remain protected separately.
+      // Literal code whitespace and editable hard line breaks remain distinct.
       var offset = 0;
       for (
         var end = data.indexOf('\n');
@@ -192,7 +233,7 @@ class VisualMarkdown {
 
   String export(q.Document value) {
     if (_signature(value) == _originalDelta) return original;
-    if (value.toDelta().toList().any((op) => op.data is! String)) {
+    if (value.toDelta().toList().any((op) => !_supportedInsert(op.data))) {
       throw const FormatException(
         'Вставка новых изображений и объектов пока не поддерживается. Отмените вставку.',
       );
@@ -210,5 +251,22 @@ class VisualMarkdown {
       );
     }
     return output;
+  }
+}
+
+/// A hard line break belongs inside a paragraph, not a new Quill paragraph.
+/// Unicode LINE SEPARATOR is editable text and renders as an actual line break.
+class _MarkdownImporter extends MarkdownToDelta {
+  _MarkdownImporter({
+    required super.markdownDocument,
+    super.customElementToBlockAttribute,
+  });
+  @override
+  void visitElementAfter(md.Element element) {
+    if (element.tag == 'br') {
+      super.visitText(md.Text('\u2028'));
+    } else {
+      super.visitElementAfter(element);
+    }
   }
 }

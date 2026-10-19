@@ -25,6 +25,7 @@ class SummaryEditor extends ChangeNotifier {
   String? _contentError;
   bool saving = false;
   bool _disposed = false;
+  bool _autosavePaused = false;
   Timer? _timer;
   Future<bool>? _inFlight;
   bool get dirty => title.trim() != _savedTitle || content != _savedContent;
@@ -40,8 +41,8 @@ class SummaryEditor extends ChangeNotifier {
       _contentError = null;
     }
     _timer?.cancel();
-    if (_contentError == null) {
-      _timer = Timer(debounce, () => unawaited(flush()));
+    if (_contentError == null && !_autosavePaused) {
+      _timer = Timer(debounce, () => unawaited(flush(automatic: true)));
     }
     _notify();
   }
@@ -53,9 +54,10 @@ class SummaryEditor extends ChangeNotifier {
     _notify();
   }
 
-  Future<bool> flush() async {
+  Future<bool> flush({bool automatic = false}) async {
     _timer?.cancel();
     while (!_disposed) {
+      if (automatic && _autosavePaused) return !hasUnsavedChanges;
       if (_contentError != null) {
         error = _contentError;
         _notify();
@@ -108,6 +110,35 @@ class SummaryEditor extends ChangeNotifier {
       saving = false;
       _notify();
     }
+  }
+
+  // Stop the debounce before deciding whether to leave. An already accepted
+  // PATCH must finish before choosing which saved snapshot to restore.
+  Future<void> pauseAutosave() async {
+    _autosavePaused = true;
+    _timer?.cancel();
+    final pending = _inFlight;
+    if (pending != null) await pending;
+    _timer?.cancel();
+  }
+
+  void resumeAutosave() {
+    _autosavePaused = false;
+    if (dirty && _contentError == null && error == null) {
+      _timer?.cancel();
+      _timer = Timer(debounce, () => unawaited(flush(automatic: true)));
+    }
+  }
+
+  bool get hasUnsavedChanges => dirty || _contentError != null;
+
+  void discardUnsaved() {
+    _timer?.cancel();
+    title = _savedTitle;
+    content = _savedContent;
+    error = null;
+    _contentError = null;
+    _notify();
   }
 
   void setFolders(MeetingSummary updated) {

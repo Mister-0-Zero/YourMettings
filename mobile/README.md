@@ -128,9 +128,10 @@ result. Long results keep Edit/Accept above the scrolling document; Accept retur
 to the New meeting methods screen without deleting the server summary.
 
 Tables and unsupported constructs appear as locked inserts and preserve their
-original source. Supported surrounding text is visually editable; a paragraph
-can be added after an insert. Existing hard Markdown breaks, images and some
-cross-block HTML/reference groups remain protected. New unsupported rich content
+original source. Supported surrounding text is visually editable. Ordinary
+paragraphs, headings, lists, hard line breaks, task lists and horizontal rules
+remain in a single editor. Images and some combined HTML/reference constructs
+remain protected. New unsupported rich content
 blocks saving rather than being silently removed. Ordinary whitespace/delimiters
 in changed sections can be normalized to Markdown.
 
@@ -139,3 +140,16 @@ off. This skips only the dialog after an explicit Delete folder action.
 
 See [the 2026-10-19 validation report](../docs/MOBILE_UX_VALIDATION_2026-10-19.md)
 for supported constructs, safety boundaries, tests, physical-phone checks and APKs.
+
+
+## Editor correction (2026-10-19)
+
+The conversion guard now compares adjacent Markdown text nodes by their joined
+content: escaped punctuation must not make an ordinary paragraph read-only.
+Standard horizontal rules render inside the editor instead of splitting it into
+locked sections. Checkmark waits for a successful PATCH; Back returns to the
+formatted view and asks Save / Discard when changes are still unsaved. Discard
+restores the latest successfully saved snapshot (autosave remains enabled).
+The meeting management menu is available only in the formatted view.
+
+See [the editor-fix validation](../docs/MOBILE_EDITOR_FIX_VALIDATION_2026-10-19.md).

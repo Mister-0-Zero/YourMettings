@@ -85,6 +85,41 @@ void main() {
     expect(bodies.single['content'], 'АБ');
   });
 
+  testWidgets(
+    'discard waits for an active autosave and cancels its queued edits',
+    (tester) async {
+      final first = Completer<http.Response>();
+      final bodies = <Map<String, dynamic>>[];
+      final api = ApiClient(
+        Uri.parse('http://localhost/api/v1/'),
+        client: MockClient((request) async {
+          bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+          return first.future;
+        }),
+      );
+      final editor = SummaryEditor(api, MeetingSummary.fromJson(summaryJson));
+      addTearDown(() {
+        editor.dispose();
+        api.close();
+      });
+      editor.edit(content: 'Уже отправлено');
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(bodies.length, 1);
+      editor.edit(content: 'Ещё не сохранено');
+      final paused = editor.pauseAutosave();
+      first.complete(response({...summaryJson, ...bodies.first}));
+      await tester.pump();
+      await paused;
+      expect(editor.hasUnsavedChanges, isTrue);
+      editor.discardUnsaved();
+      editor.resumeAutosave();
+      await tester.pump(const Duration(seconds: 2));
+      expect(editor.content, 'Уже отправлено');
+      expect(editor.hasUnsavedChanges, isFalse);
+      expect(bodies.length, 1);
+    },
+  );
+
   test('failed save retains edits and can be retried', () async {
     var attempts = 0;
     final api = ApiClient(
@@ -118,61 +153,68 @@ void main() {
     expect(editor.dirty, isFalse);
   });
 
-  testWidgets(
-    'back navigation flushes edits immediately rather than waiting for debounce',
-    (tester) async {
-      var patches = 0;
-      final api = ApiClient(
-        Uri.parse('http://localhost/api/v1/'),
-        client: MockClient((request) async {
-          if (request.method == 'PATCH') {
-            patches++;
-            return response({
-              ...summaryJson,
-              ...jsonDecode(request.body) as Map<String, dynamic>,
-            });
-          }
-          return response(summaryJson);
-        }),
-      );
-      final controller = MeetingController(api, _MemoryStore());
-      addTearDown(() {
-        controller.dispose();
-        api.close();
-      });
-      await tester.pumpWidget(
-        MaterialApp(
-          localizationsDelegates: const [q.FlutterQuillLocalizations.delegate],
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: TextButton(
-                onPressed: () => Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SummaryPageView(
-                      controller: controller,
-                      summary: MeetingSummary.fromJson(summaryJson),
-                    ),
+  testWidgets('back asks before saving and returns to formatted view', (
+    tester,
+  ) async {
+    var patches = 0;
+    final api = ApiClient(
+      Uri.parse('http://localhost/api/v1/'),
+      client: MockClient((request) async {
+        if (request.method == 'PATCH') {
+          patches++;
+          return response({
+            ...summaryJson,
+            ...jsonDecode(request.body) as Map<String, dynamic>,
+          });
+        }
+        return response(summaryJson);
+      }),
+    );
+    final controller = MeetingController(api, _MemoryStore());
+    addTearDown(() {
+      controller.dispose();
+      api.close();
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: const [q.FlutterQuillLocalizations.delegate],
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SummaryPageView(
+                    controller: controller,
+                    summary: MeetingSummary.fromJson(summaryJson),
                   ),
                 ),
-                child: const Text('Открыть'),
               ),
+              child: const Text('Открыть'),
             ),
           ),
         ),
-      );
-      await tester.tap(find.text('Открыть'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Редактировать'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'Новое название');
-      expect(patches, 0);
-      await tester.tap(find.byType(BackButton));
-      await tester.pumpAndSettle();
-      expect(patches, 1);
-      expect(find.text('Открыть'), findsOneWidget);
-    },
-  );
+      ),
+    );
+    await tester.tap(find.text('Открыть'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Редактировать'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Новое название');
+    expect(patches, 0);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Сохранить изменения?'), findsOneWidget);
+    expect(patches, 0);
+    await tester.tap(find.widgetWithText(FilledButton, 'Сохранить'));
+    await tester.pumpAndSettle();
+    expect(patches, 1);
+    expect(find.byType(q.QuillEditor), findsNothing);
+    expect(find.text('Новое название'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Открыть'), findsOneWidget);
+  });
 
   testWidgets(
     'deletion is not sent until confirmation; cancel preserves summary',

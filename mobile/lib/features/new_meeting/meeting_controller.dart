@@ -239,6 +239,13 @@ class MeetingController extends ChangeNotifier {
     await check();
   }
 
+  void summaryUpdated(MeetingSummary updated) {
+    if (result?.id == updated.id) {
+      result = updated;
+      _notify();
+    }
+  }
+
   Future<void> summaryDeleted(String transcriptId) async {
     if (recovery.operation?.id != transcriptId) return;
     _timer?.cancel();

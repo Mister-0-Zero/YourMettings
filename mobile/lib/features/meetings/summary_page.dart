@@ -62,28 +62,90 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     return editor.flush();
   }
 
+  void _resetVisual() {
+    final editor = _editor!;
+    _visual?.dispose();
+    _title.text = editor.title;
+    _visual = VisualDocument(
+      editor.content,
+      onChanged: (content, error) {
+        if (error != null) {
+          editor.blockContentSave(error);
+        } else {
+          editor.edit(content: content!);
+        }
+      },
+    );
+  }
+
+  Future<void> _closeEditing() async {
+    _editor!.resumeAutosave();
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (widget.startEditing) {
+      setState(() => _allowExit = true);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) Navigator.of(context).pop(_editor!.summary);
+    } else {
+      _resetVisual();
+      setState(() => _editing = false);
+    }
+  }
+
   Future<void> _leave() async {
     if (_busy || !mounted) return;
-    final ok = await _flush();
-    if (!ok || !mounted) return;
-    setState(() => _allowExit = true);
-    await WidgetsBinding.instance.endOfFrame;
-    if (mounted) Navigator.of(context).pop();
+    if (!_editing) {
+      setState(() => _allowExit = true);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await _editor!.pauseAutosave();
+      if (!mounted) return;
+      if (_editor!.hasUnsavedChanges) {
+        final choice = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Сохранить изменения?'),
+            content: const Text('Есть несохранённые изменения в документе.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Продолжить редактирование'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'discard'),
+                child: const Text('Отменить изменения'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, 'save'),
+                child: const Text('Сохранить'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || choice == null) return;
+        if (choice == 'save') {
+          if (!await _flush() || !mounted) return;
+        } else {
+          _editor!.discardUnsaved();
+        }
+      }
+      if (mounted) await _closeEditing();
+    } finally {
+      if (mounted) {
+        if (_editing && !_allowExit) _editor!.resumeAutosave();
+        setState(() => _busy = false);
+      }
+    }
   }
 
   Future<void> _confirmEditing() async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      if (await _flush() && mounted) {
-        if (widget.startEditing) {
-          setState(() => _allowExit = true);
-          await WidgetsBinding.instance.endOfFrame;
-          if (mounted) Navigator.of(context).pop();
-        } else {
-          setState(() => _editing = false);
-        }
-      }
+      if (await _flush() && mounted) await _closeEditing();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -232,29 +294,33 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                     child: TextButton.icon(
                       onPressed: _busy
                           ? null
-                          : () => setState(() => _editing = true),
+                          : () {
+                              _resetVisual();
+                              setState(() => _editing = true);
+                            },
                       icon: const Icon(Icons.edit_outlined),
                       label: const Text('Редактировать'),
                     ),
                   ),
-                PopupMenuButton<String>(
-                  enabled: !_busy,
-                  onSelected: _action,
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: 'transcript',
-                      child: Text('Исходный транскрипт'),
-                    ),
-                    PopupMenuItem(
-                      value: 'folders',
-                      child: Text('Папки встречи'),
-                    ),
-                    PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Удалить summary'),
-                    ),
-                  ],
-                ),
+                if (!_editing)
+                  PopupMenuButton<String>(
+                    enabled: !_busy,
+                    onSelected: _action,
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'transcript',
+                        child: Text('Исходный транскрипт'),
+                      ),
+                      PopupMenuItem(
+                        value: 'folders',
+                        child: Text('Папки встречи'),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Удалить summary'),
+                      ),
+                    ],
+                  ),
               ],
             ),
             body: Column(
@@ -270,8 +336,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                       20 + MediaQuery.viewPaddingOf(context).bottom,
                     ),
                     children: [
-                      if (_busy || editor.saving)
-                        const LinearProgressIndicator(),
+                      if (editor.saving) const LinearProgressIndicator(),
                       Row(
                         children: [
                           Expanded(
@@ -287,7 +352,9 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                           ),
                           if (editor.dirty || editor.error != null)
                             TextButton(
-                              onPressed: editor.saving || _busy ? null : _flush,
+                              onPressed: editor.saving || _busy
+                                  ? null
+                                  : _confirmEditing,
                               child: const Text('Сохранить'),
                             ),
                         ],

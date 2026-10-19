@@ -238,13 +238,15 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 subtitle: const Text(
                   'Подробность и акценты итогового документа',
                 ),
-                childrenPadding: const EdgeInsets.only(bottom: 16),
+                childrenPadding: const EdgeInsets.all(16),
                 children: [
                   DropdownButtonFormField<String>(
                     initialValue: _options.detailLevel,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Детализация summary',
                       helperText: 'Определяет подробность итогового документа',
+                      helperMaxLines: 3,
                     ),
                     items: ProcessingOptions.detailLevels.entries
                         .map(
@@ -354,7 +356,7 @@ class ProcessingPanel extends StatelessWidget {
   const ProcessingPanel({super.key, required this.controller});
   final MeetingController controller;
   Future<void> _openResult(BuildContext context, MeetingSummary summary) async {
-    await Navigator.of(context).push<void>(
+    final updated = await Navigator.of(context).push<MeetingSummary>(
       MaterialPageRoute(
         builder: (_) => SummaryPageView(
           controller: controller,
@@ -363,7 +365,7 @@ class ProcessingPanel extends StatelessWidget {
         ),
       ),
     );
-    if (controller.hasOperation) await controller.check();
+    if (updated != null) controller.summaryUpdated(updated);
   }
 
   Future<void> _dismiss(BuildContext context) async {
@@ -466,9 +468,6 @@ class ProcessingPanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     const Text('Это может занять некоторое время'),
-                    const Text(
-                      'Состояние проверяется автоматически и восстановится после перезапуска.',
-                    ),
                   ] else
                     Text(
                       failed

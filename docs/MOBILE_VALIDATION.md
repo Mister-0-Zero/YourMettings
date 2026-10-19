@@ -1,3 +1,5 @@
+Latest editor correction: [2026-10-19](MOBILE_EDITOR_FIX_VALIDATION_2026-10-19.md).
+
 Latest UX/editor verification: [2026-10-19](MOBILE_UX_VALIDATION_2026-10-19.md).
 
 # Mobile refinement validation

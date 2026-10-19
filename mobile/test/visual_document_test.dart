@@ -90,9 +90,6 @@ void main() {
     '![подпись](https://example.com/a.png "title")\n',
     '<div>\n\nHTML content\n\n</div>\n',
     '> # Заголовок\n> продолжение\n',
-    'Принудительный  \nперенос\n',
-    '- [x] task\n- [ ] open\n',
-    '---\n',
   ];
   for (final block in complex) {
     test('protected block preserved exactly: $block', () {

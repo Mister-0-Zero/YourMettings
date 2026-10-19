@@ -10,7 +10,7 @@ void main() {
   ) async {
     String? error;
     final model = VisualDocument(
-      '|A|B|\n|-|-|\n|1|2|\n',
+      'Обычный абзац.',
       onChanged: (_, message) {
         error = message;
       },
@@ -34,7 +34,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Добавить абзац после'));
+    model.active!.focus.requestFocus();
     await tester.pumpAndSettle();
     expect(tester.testTextInput.hasAnyClients, isTrue);
     const text = 'New paragraph after table.';

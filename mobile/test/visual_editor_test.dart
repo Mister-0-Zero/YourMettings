@@ -132,16 +132,16 @@ void main() {
       expect(patches, 1);
     },
   );
-  test('new paragraph after table does not become a table row', () {
-    final model = VisualDocument(table, onChanged: (_, _) {});
+  test('editing after a table preserves the source boundary', () {
+    final model = VisualDocument(
+      '$table\nПосле таблицы.',
+      onChanged: (_, _) {},
+    );
     addTearDown(model.dispose);
-    final protected = model.sections.first;
-    model.insertParagraphAfter(protected);
-    expect(model.export(), table);
-    model.active!.controller!.document.insert(0, 'После вставки');
+    model.sections.last.controller!.document.insert(0, 'Правка ');
     final result = model.export();
     expect(result, startsWith(table));
-    expect(result, contains('\n\nПосле вставки'));
+    expect(result, contains('\n\nПравка После таблицы'));
     final reopened = VisualDocument(result, onChanged: (_, _) {});
     addTearDown(reopened.dispose);
     expect(
@@ -149,13 +149,8 @@ void main() {
       contains(table),
     );
     expect(
-      reopened.sections
-          .where((s) => !s.protected)
-          .any(
-            (s) =>
-                s.controller!.document.toPlainText().contains('После вставки'),
-          ),
-      isTrue,
+      reopened.sections.last.controller!.document.toPlainText(),
+      contains('Правка После таблицы'),
     );
   });
 }

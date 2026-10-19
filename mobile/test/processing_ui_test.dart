@@ -66,6 +66,12 @@ void main() {
     expect(find.text('Qwen обрабатывает совещание…'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text('Проверить состояние'), findsNothing);
+    expect(
+      find.text(
+        'Состояние проверяется автоматически и восстановится после перезапуска.',
+      ),
+      findsNothing,
+    );
     c.error = 'Сеть недоступна';
     await render();
     expect(find.text('Восстановить соединение'), findsOneWidget);
