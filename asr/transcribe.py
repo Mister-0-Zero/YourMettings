@@ -11,9 +11,51 @@ import time
 import wave
 
 ROOT = Path(__file__).resolve().parent
+_DLL_DIRS = []
+
+
+def load_saved_token():
+    """Use the Windows user variable even if this terminal predates its creation."""
+    if os.name == 'nt' and not os.environ.get('HF_TOKEN'):
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as key:
+                token, _ = winreg.QueryValueEx(key, 'HF_TOKEN')
+            if isinstance(token, str) and token.strip():
+                os.environ['HF_TOKEN'] = token.strip()
+        except OSError:
+            pass
+
+
+def peak_ram_mib():
+    """Windows process peak working set; excludes child FFmpeg processes."""
+    if os.name != 'nt':
+        return None
+    import ctypes
+    from ctypes import wintypes
+    class Counters(ctypes.Structure):
+        _fields_ = [('cb', wintypes.DWORD), ('PageFaultCount', wintypes.DWORD)] + [
+            (name, ctypes.c_size_t) for name in (
+                'PeakWorkingSetSize', 'WorkingSetSize', 'QuotaPeakPagedPoolUsage',
+                'QuotaPagedPoolUsage', 'QuotaPeakNonPagedPoolUsage',
+                'QuotaNonPagedPoolUsage', 'PagefileUsage', 'PeakPagefileUsage')]
+    counters = Counters()
+    counters.cb = ctypes.sizeof(counters)
+    get_process = ctypes.windll.kernel32.GetCurrentProcess
+    get_process.restype = wintypes.HANDLE
+    get_memory = ctypes.windll.psapi.GetProcessMemoryInfo
+    get_memory.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+    if get_memory(get_process(), ctypes.byref(counters), counters.cb):
+        return counters.PeakWorkingSetSize / 2**20
+    return None
 
 
 def configure_ffmpeg():
+    shared = ROOT / 'tools' / 'ffmpeg-shared' / 'bin'
+    if shared.is_dir():
+        os.environ['PATH'] = str(shared) + os.pathsep + os.environ.get('PATH', '')
+        if os.name == 'nt':
+            _DLL_DIRS.append(os.add_dll_directory(str(shared)))
     if shutil.which('ffmpeg'):
         return 'ffmpeg'
     import imageio_ffmpeg
@@ -50,6 +92,8 @@ def main():
             raise ValueError('repeat and batch-size must be positive')
         ffmpeg = configure_ffmpeg()
         os.environ.setdefault('HF_HOME', str(ROOT / '.cache' / 'huggingface'))
+        os.environ.setdefault('HF_HUB_DISABLE_TELEMETRY', '1')
+        os.environ.setdefault('PYANNOTE_METRICS_ENABLED', '0')
         import torch
         import gigaam
         if args.device == 'cuda' and not torch.cuda.is_available():
@@ -71,6 +115,8 @@ def main():
             if duration <= 0:
                 raise ValueError('Audio is empty')
             longform = duration > 25
+            if longform:
+                load_saved_token()
             if longform and not os.environ.get('HF_TOKEN'):
                 raise ValueError('Long audio requires official pyannote VAD: accept '
                     'pyannote/segmentation-3.0 conditions and set HF_TOKEN locally; '
@@ -99,6 +145,7 @@ def main():
             metrics = {'model': 'v3_e2e_rnnt', 'audio_seconds': duration,
                 'decode_seconds': decode_seconds, 'load_seconds': load_seconds,
                 'runs': runs, 'longform': longform,
+                'peak_process_ram_mib': peak_ram_mib(),
                 'total_seconds_before_save': time.perf_counter() - total_started,
                 'device': args.device, 'torch': torch.__version__, 'cuda': torch.version.cuda,
                 'gpu': torch.cuda.get_device_name() if args.device == 'cuda' else None,
