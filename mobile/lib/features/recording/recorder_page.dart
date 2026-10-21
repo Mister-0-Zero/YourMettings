@@ -51,7 +51,7 @@ class _RecorderPageState extends State<RecorderPage> {
             controller: widget.review,
             audioReview: true,
             reviewNotice: widget.review.needsBoundaryReview
-                ? _BoundaryReview(review: widget.review)
+                ? AudioBoundaryReview(review: widget.review)
                 : null,
           ),
         ),
@@ -289,25 +289,25 @@ class _RecorderPageState extends State<RecorderPage> {
   }
 }
 
-class _BoundaryReview extends StatefulWidget {
-  const _BoundaryReview({required this.review});
+class AudioBoundaryReview extends StatefulWidget {
+  const AudioBoundaryReview({super.key, required this.review});
   final AudioReviewController review;
   @override
-  State<_BoundaryReview> createState() => _BoundaryReviewState();
+  State<AudioBoundaryReview> createState() => AudioBoundaryReviewState();
 }
 
-class _BoundaryReviewState extends State<_BoundaryReview> {
+class AudioBoundaryReviewState extends State<AudioBoundaryReview> {
   @override
   Widget build(BuildContext context) {
-    final session = widget.review.recorder.state['session'] as Json;
-    final chunks = (session['chunks'] as List).cast<Json>();
+    final session = widget.review.session;
+    final chunks = (session['chunks'] as List? ?? []).cast<Json>();
     return Column(
       children: [
         const Text(
           'Распознавание стыков неоднозначно. Проверьте, нет ли повторённых или пропущенных слов:',
         ),
         for (final warning
-            in (session['boundary_warnings'] as List).cast<Json>()) ...[
+            in (session['boundary_warnings'] as List? ?? []).cast<Json>()) ...[
           for (final chunk in chunks.where(
             (c) =>
                 c['sequence_number'] == warning['sequence_number'] ||

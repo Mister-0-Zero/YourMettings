@@ -1,6 +1,7 @@
 import '../../services/external_links.dart';
 import '../../models/processing_options.dart';
 import '../meetings/summary_page.dart';
+import '../recording/audio_review_controller.dart';
 
 import 'dart:typed_data';
 import 'dart:convert';
@@ -37,6 +38,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
   bool _settingsReached = false;
   bool _operationOpen = false;
   bool _cancelling = false;
+  bool _allowExit = false;
   late final _text = TextEditingController(text: widget.controller.draft.text);
   late final _title = TextEditingController(
     text: widget.controller.draft.title,
@@ -80,7 +82,9 @@ class _TranscriptPageState extends State<TranscriptPage> {
     if (!widget.controller.hasOperation) {
       _folderIds = [...widget.controller.draft.folderIds];
     }
-    _hadOperation = widget.controller.hasOperation;
+    if (_hadOperation != widget.controller.hasOperation && mounted) {
+      setState(() => _hadOperation = widget.controller.hasOperation);
+    }
   }
 
   late ProcessingOptions _options = widget.controller.draft.options;
@@ -100,35 +104,95 @@ class _TranscriptPageState extends State<TranscriptPage> {
   );
 
   Future<void> _cancelCreation() async {
-    final confirmed = await showDialog<bool>(
+    if (_cancelling || widget.controller.working) return;
+    final review = widget.controller as AudioReviewController;
+    final alreadyDeleted = review.serverDeleted;
+    final choice = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Отменить создание встречи?'),
+        title: const Text('Что сделать со встречей?'),
         content: const Text(
-          'Текст останется в черновике на этом устройстве. Запись и аудиосессия сохранятся. '
-          'Позже можно продолжить эту встречу; обработка Qwen не запустится.',
+          'Сохранённый черновик будет доступен в «Пространстве». После выхода можно начать новую запись.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: alreadyDeleted ? null : () => Navigator.pop(context),
             child: const Text('Продолжить редактирование'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: alreadyDeleted
+                ? null
+                : () => Navigator.pop(context, 'save'),
             child: const Text('Сохранить черновик и выйти'),
+          ),
+          TextButton.icon(
+            onPressed: () => Navigator.pop(context, 'delete'),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Удалить встречу'),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    setState(() => _cancelling = true);
+    if (choice == null || !mounted) return;
+    if (choice == 'delete' && !alreadyDeleted) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Удалить встречу?'),
+          content: const Text(
+            'Данные этой встречи будут удалены с сервера и этого устройства. Это действие нельзя отменить.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Удалить'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    setState(() {
+      _cancelling = true;
+      _inputError = null;
+    });
     FocusManager.instance.primaryFocus?.unfocus();
     await WidgetsBinding.instance.endOfFrame;
     await _save();
     if (!mounted) return;
-    setState(() => _cancelling = false);
+    var success = false;
     if (widget.controller.storageError == null) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      success = choice == 'delete'
+          ? await review.deleteMeeting()
+          : await review.defer();
+    }
+    if (!mounted) return;
+    setState(() {
+      _cancelling = false;
+      _allowExit = success;
+    });
+    if (success) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+    } else {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              widget.controller.storageError ??
+                  widget.controller.error ??
+                  'Не удалось завершить действие. Данные не удалены.',
+            ),
+          ),
+        );
     }
   }
 
@@ -256,268 +320,291 @@ class _TranscriptPageState extends State<TranscriptPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(
-        widget.onRecord == null ? 'Транскрипт встречи' : 'Перед записью',
+  Widget build(BuildContext context) => PopScope(
+    canPop: !widget.audioReview || _allowExit || widget.controller.hasOperation,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) _cancelCreation();
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.onRecord == null ? 'Транскрипт встречи' : 'Перед записью',
+        ),
       ),
-    ),
-    floatingActionButton: AnimatedBuilder(
-      animation: Listenable.merge([widget.controller, _text]),
-      builder: (context, _) {
-        WidgetsBinding.instance.addPostFrameCallback(
-          (_) => _updateJumpVisibility(),
-        );
-        return !widget.controller.hasOperation &&
-                _text.text.trim().isNotEmpty &&
-                !_settingsReached
-            ? FloatingActionButton.small(
-                heroTag: 'transcript-settings',
-                tooltip: 'К папкам и настройкам',
-                onPressed: _scrollToSettings,
-                child: const Icon(Icons.arrow_downward),
-              )
-            : const SizedBox.shrink();
-      },
-    ),
-    body: AnimatedBuilder(
-      animation: widget.controller,
-      builder: (context, _) {
-        final controller = widget.controller;
-        if (controller.hasOperation) {
-          return _AcceptedTranscriptPanel(
-            key: ValueKey(controller.recovery.operation?.id ?? 'pending'),
-            controller: controller,
-            onOpen: _scheduleOperation,
+      floatingActionButton: AnimatedBuilder(
+        animation: Listenable.merge([widget.controller, _text]),
+        builder: (context, _) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _updateJumpVisibility(),
           );
-        }
-        final folders = flattenFolders(controller.folders);
-        return Form(
-          key: _form,
-          child: SingleChildScrollView(
-            controller: _pageScroll,
-            padding: EdgeInsets.fromLTRB(
-              20,
-              20,
-              20,
-              20 + MediaQuery.viewPaddingOf(context).bottom,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Черновик сохраняется на этом устройстве до принятия сервером. Используйте только неконфиденциальные тестовые данные.',
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _title,
-                  readOnly: controller.working || _cancelling,
-                  onChanged: (_) => _save(),
-                  maxLength: 200,
-                  decoration: const InputDecoration(
-                    labelText: 'Название встречи',
+          return !widget.controller.hasOperation &&
+                  _text.text.trim().isNotEmpty &&
+                  !_settingsReached
+              ? FloatingActionButton.small(
+                  heroTag: 'transcript-settings',
+                  tooltip: 'К папкам и настройкам',
+                  onPressed: _scrollToSettings,
+                  child: const Icon(Icons.arrow_downward),
+                )
+              : const SizedBox.shrink();
+        },
+      ),
+      body: AnimatedBuilder(
+        animation: widget.controller,
+        builder: (context, _) {
+          final controller = widget.controller;
+          if (controller.hasOperation) {
+            return _AcceptedTranscriptPanel(
+              key: ValueKey(controller.recovery.operation?.id ?? 'pending'),
+              controller: controller,
+              onOpen: _scheduleOperation,
+            );
+          }
+          final folders = flattenFolders(controller.folders);
+          return Form(
+            key: _form,
+            child: SingleChildScrollView(
+              controller: _pageScroll,
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.viewPaddingOf(context).bottom,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Черновик сохраняется на этом устройстве до принятия сервером. Используйте только неконфиденциальные тестовые данные.',
                   ),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Введите название встречи'
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                if (widget.onRecord == null && !widget.audioReview)
-                  OutlinedButton.icon(
-                    onPressed: _importing || controller.working
-                        ? null
-                        : _import,
-                    icon: const Icon(Icons.upload_file),
-                    label: const Text('Выбрать файл .txt'),
-                  ),
-                const SizedBox(height: 12),
-                if (widget.onRecord == null)
+                  const SizedBox(height: 16),
                   TextFormField(
-                    controller: _text,
-                    readOnly: controller.working || _cancelling,
+                    controller: _title,
+                    readOnly:
+                        controller.working ||
+                        _cancelling ||
+                        (controller is AudioReviewController &&
+                            controller.serverDeleted),
                     onChanged: (_) => _save(),
-                    minLines: 8,
-                    maxLines: 18,
+                    maxLength: 200,
                     decoration: const InputDecoration(
-                      labelText: 'Текст транскрипта',
-                      hintText: 'Вставьте текст или загрузите файл .txt',
+                      labelText: 'Название встречи',
                     ),
                     validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Добавьте текст транскрипта'
-                        : value.runes.length > 100000
-                        ? 'Максимум 100 000 символов'
+                        ? 'Введите название встречи'
                         : null,
                   ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  key: _settingsAnchor,
-                  onPressed: controller.working ? null : _folders,
-                  icon: const Icon(Icons.folder_outlined),
-                  label: const Text('Выбрать или создать папки'),
-                ),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final id in _folderIds)
-                      Chip(
-                        label: Text(
-                          folders
-                                  .where((entry) => entry.folder.id == id)
-                                  .firstOrNull
-                                  ?.path ??
-                              'Выбранная папка',
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                ExpansionTile(
-                  title: const Text('Настройки обработки'),
-                  subtitle: const Text(
-                    'Подробность и акценты итогового документа',
-                  ),
-                  childrenPadding: const EdgeInsets.all(16),
-                  children: [
-                    DropdownButtonFormField<String>(
-                      initialValue: _options.detailLevel,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Детализация summary',
-                        helperText:
-                            'Определяет подробность итогового документа',
-                        helperMaxLines: 3,
-                      ),
-                      items: ProcessingOptions.detailLevels.entries
-                          .map(
-                            (e) => DropdownMenuItem(
-                              value: e.key,
-                              child: Text(e.value),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: controller.working
+                  const SizedBox(height: 12),
+                  if (widget.onRecord == null && !widget.audioReview)
+                    OutlinedButton.icon(
+                      onPressed: _importing || controller.working
                           ? null
-                          : (value) {
-                              if (value != null) {
-                                setState(
-                                  () => _options = _options.copyWith(
-                                    detailLevel: value,
-                                  ),
-                                );
-                                _save();
-                              }
-                            },
+                          : _import,
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Выбрать файл .txt'),
                     ),
-                    const SizedBox(height: 16),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Акценты обработки',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        for (final entry
-                            in ProcessingOptions.focusLabels.entries)
-                          FilterChip(
-                            label: Text(entry.value),
-                            selected: _options.focusAreas.contains(entry.key),
-                            onSelected: controller.working
-                                ? null
-                                : (selected) {
-                                    final areas = {..._options.focusAreas};
-                                    if (selected) {
-                                      areas.add(entry.key);
-                                    } else {
-                                      areas.remove(entry.key);
-                                    }
-                                    setState(
-                                      () => _options = _options.copyWith(
-                                        focusAreas: areas.toList(),
-                                      ),
-                                    );
-                                    _save();
-                                  },
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('Дополнительные указания для ИИ'),
-                    ),
-                    const SizedBox(height: 8),
+                  const SizedBox(height: 12),
+                  if (widget.onRecord == null)
                     TextFormField(
-                      controller: _instructions,
-                      readOnly: controller.working || _cancelling,
-                      minLines: 3,
-                      maxLines: 6,
-                      maxLength: 2000,
+                      controller: _text,
+                      readOnly:
+                          controller.working ||
+                          _cancelling ||
+                          (controller is AudioReviewController &&
+                              controller.serverDeleted),
+                      onChanged: (_) => _save(),
+                      minLines: 8,
+                      maxLines: 18,
                       decoration: const InputDecoration(
-                        hintText: 'Отдельно выдели поручения конкретным сотрудникам, сохрани технические подробности обсуждения',
+                        labelText: 'Текст транскрипта',
+                        hintText: 'Вставьте текст или загрузите файл .txt',
                       ),
                       validator: (value) =>
-                          (value ?? '').trim().runes.length > 2000
-                          ? 'Максимум 2000 символов'
-                          : RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
-                                .hasMatch(value ?? '')
-                          ? 'Удалите управляющие символы из указаний'
+                          value == null || value.trim().isEmpty
+                          ? 'Добавьте текст транскрипта'
+                          : value.runes.length > 100000
+                          ? 'Максимум 100 000 символов'
                           : null,
-                      onChanged: (value) {
-                        _options = _options.copyWith(
-                          additionalInstructions: value,
-                        );
-                        _save();
-                      },
                     ),
-                  ],
-                ),
-                if (widget.reviewNotice != null) widget.reviewNotice!,
-                if (_inputError != null ||
-                    controller.error != null ||
-                    controller.storageError != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      _inputError ??
-                          controller.storageError ??
-                          controller.error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    key: _settingsAnchor,
+                    onPressed: controller.working ? null : _folders,
+                    icon: const Icon(Icons.folder_outlined),
+                    label: const Text('Выбрать или создать папки'),
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final id in _folderIds)
+                        Chip(
+                          label: Text(
+                            folders
+                                    .where((entry) => entry.folder.id == id)
+                                    .firstOrNull
+                                    ?.path ??
+                                'Выбранная папка',
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ExpansionTile(
+                    title: const Text('Настройки обработки'),
+                    subtitle: const Text(
+                      'Подробность и акценты итогового документа',
+                    ),
+                    childrenPadding: const EdgeInsets.all(16),
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: _options.detailLevel,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Детализация summary',
+                          helperText:
+                              'Определяет подробность итогового документа',
+                          helperMaxLines: 3,
+                        ),
+                        items: ProcessingOptions.detailLevels.entries
+                            .map(
+                              (e) => DropdownMenuItem(
+                                value: e.key,
+                                child: Text(e.value),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: controller.working
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  setState(
+                                    () => _options = _options.copyWith(
+                                      detailLevel: value,
+                                    ),
+                                  );
+                                  _save();
+                                }
+                              },
+                      ),
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Акценты обработки',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          for (final entry
+                              in ProcessingOptions.focusLabels.entries)
+                            FilterChip(
+                              label: Text(entry.value),
+                              selected: _options.focusAreas.contains(entry.key),
+                              onSelected: controller.working
+                                  ? null
+                                  : (selected) {
+                                      final areas = {..._options.focusAreas};
+                                      if (selected) {
+                                        areas.add(entry.key);
+                                      } else {
+                                        areas.remove(entry.key);
+                                      }
+                                      setState(
+                                        () => _options = _options.copyWith(
+                                          focusAreas: areas.toList(),
+                                        ),
+                                      );
+                                      _save();
+                                    },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('Дополнительные указания для ИИ'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _instructions,
+                        readOnly:
+                            controller.working ||
+                            _cancelling ||
+                            (controller is AudioReviewController &&
+                                controller.serverDeleted),
+                        minLines: 3,
+                        maxLines: 6,
+                        maxLength: 2000,
+                        decoration: const InputDecoration(
+                          hintText: 'Отдельно выдели поручения конкретным сотрудникам, сохрани технические подробности обсуждения',
+                        ),
+                        validator: (value) =>
+                            (value ?? '').trim().runes.length > 2000
+                            ? 'Максимум 2000 символов'
+                            : RegExp(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+                                  .hasMatch(value ?? '')
+                            ? 'Удалите управляющие символы из указаний'
+                            : null,
+                        onChanged: (value) {
+                          _options = _options.copyWith(
+                            additionalInstructions: value,
+                          );
+                          _save();
+                        },
+                      ),
+                    ],
+                  ),
+                  if (widget.reviewNotice != null) widget.reviewNotice!,
+                  if (_inputError != null ||
+                      controller.error != null ||
+                      controller.storageError != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        _inputError ??
+                            controller.storageError ??
+                            controller.error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
-                  ),
-                const SizedBox(height: 16),
-                if (widget.audioReview)
-                  TextButton(
-                    onPressed: controller.working || _cancelling
+                  const SizedBox(height: 16),
+                  if (widget.audioReview)
+                    TextButton(
+                      onPressed: controller.working || _cancelling
+                          ? null
+                          : _cancelCreation,
+                      child: const Text('Отменить создание встречи'),
+                    ),
+                  FilledButton.icon(
+                    onPressed:
+                        controller.working ||
+                            _recordStarting ||
+                            _cancelling ||
+                            (controller is AudioReviewController &&
+                                controller.deletionPending)
                         ? null
-                        : _cancelCreation,
-                    child: const Text('Отменить создание встречи'),
+                        : _submit,
+                    icon: const Icon(Icons.auto_awesome_outlined),
+                    label: Text(
+                      widget.onRecord != null
+                          ? 'Начать запись'
+                          : widget.audioReview
+                          ? 'Подтвердить и создать summary'
+                          : 'Обработать',
+                    ),
                   ),
-                FilledButton.icon(
-                  onPressed:
-                      controller.working || _recordStarting || _cancelling
-                      ? null
-                      : _submit,
-                  icon: const Icon(Icons.auto_awesome_outlined),
-                  label: Text(
-                    widget.onRecord != null
-                        ? 'Начать запись'
-                        : widget.audioReview
-                        ? 'Подтвердить и создать summary'
-                        : 'Обработать',
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     ),
   );
 }

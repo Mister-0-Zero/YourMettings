@@ -2,6 +2,8 @@ import '../features/recording/recorder_coordinator.dart';
 import '../features/recording/audio_review_controller.dart';
 import '../features/recording/recorder_page.dart';
 import 'appearance.dart';
+import '../services/audio_draft_store.dart';
+import '../features/recording/workspace_page.dart';
 
 import 'package:flutter_quill/flutter_quill.dart'
     show FlutterQuillLocalizations;
@@ -20,11 +22,13 @@ class YourMettingsApp extends StatefulWidget {
     this.appearance,
     this.recorder,
     this.audioReview,
+    this.drafts,
   });
   final MeetingController? controller;
   final AppearanceController? appearance;
   final RecorderCoordinator? recorder;
   final AudioReviewController? audioReview;
+  final AudioDraftRepository? drafts;
   @override
   State<YourMettingsApp> createState() => _YourMettingsAppState();
 }
@@ -60,6 +64,7 @@ class _YourMettingsAppState extends State<YourMettingsApp> {
         appearance: _appearance,
         recorder: widget.recorder,
         audioReview: widget.audioReview,
+        drafts: widget.drafts,
       ),
     ),
   );
@@ -72,11 +77,13 @@ class MeetingShell extends StatefulWidget {
     required this.appearance,
     this.recorder,
     this.audioReview,
+    this.drafts,
   });
   final MeetingController? controller;
   final AppearanceController appearance;
   final RecorderCoordinator? recorder;
   final AudioReviewController? audioReview;
+  final AudioDraftRepository? drafts;
 
   @override
   State<MeetingShell> createState() => _MeetingShellState();
@@ -109,7 +116,12 @@ class _MeetingShellState extends State<MeetingShell>
   }
 
   int _selected = 0;
-  static const _titles = ['Новая встреча', 'Встречи', 'Инструменты', 'Профиль'];
+  static const _titles = [
+    'Новая встреча',
+    'Встречи',
+    'Рабочее пространство',
+    'Профиль',
+  ];
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -131,11 +143,12 @@ class _MeetingShellState extends State<MeetingShell>
                       'Здесь появятся папки и результаты обработки встреч.',
                 )
               : MeetingsPage(controller: widget.controller!),
-          PlaceholderPage(
-            icon: Icons.tune_outlined,
-            title: 'Инструменты',
-            message:
-                'Шаблоны и дополнительные инструменты будут доступны позже.',
+          WorkspacePage(
+            controller: widget.controller,
+            recorder: widget.recorder,
+            review: widget.audioReview,
+            drafts: widget.drafts,
+            visible: _selected == 2,
           ),
           AppearancePage(controller: widget.appearance),
         ],
@@ -162,8 +175,8 @@ class _MeetingShellState extends State<MeetingShell>
         DefaultTextStyle.merge(
           textAlign: TextAlign.center,
           child: const NavigationDestination(
-            icon: Icon(Icons.tune_outlined),
-            label: 'Инструменты',
+            icon: Icon(Icons.workspaces_outline),
+            label: 'Пространство',
           ),
         ),
         DefaultTextStyle.merge(

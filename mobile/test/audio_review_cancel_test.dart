@@ -11,6 +11,7 @@ import 'package:your_mettings/features/recording/audio_api.dart';
 import 'package:your_mettings/features/recording/audio_review_controller.dart';
 import 'package:your_mettings/features/recording/recorder_coordinator.dart';
 import 'package:your_mettings/services/recovery_store.dart';
+import 'package:your_mettings/services/audio_draft_store.dart';
 
 class _Store implements RecoveryStore {
   RecoveryState value = RecoveryState();
@@ -21,6 +22,15 @@ class _Store implements RecoveryStore {
   Future<void> save(RecoveryState next) async {
     if (fail) throw StateError('disk full');
     value = RecoveryState.fromJson(next.toJson());
+  }
+}
+
+class _Recorder extends RecorderCoordinator {
+  @override
+  Future<void> releaseReview(String expectedId) async {
+    expect(state['id'], expectedId);
+    state = {'phase': 'done'};
+    notifyListeners();
   }
 }
 
@@ -47,23 +57,30 @@ void main() {
           Uri.parse('http://example/api/v1/'),
           client: MockClient(backend),
         );
-        final recorder = RecorderCoordinator()
+        final drafts = AudioDraftRepository();
+        final recorder = _Recorder()
           ..state = {
             'phase': 'review',
+            'key': 'same-key',
             'id': 'same-session',
-            'session': {'boundary_warnings': []},
+            'session': {'transcript_id': 'source', 'boundary_warnings': []},
           };
         final store = _Store();
         final review = AudioReviewController(
           api,
           store,
           recorder,
+          drafts: drafts,
           audioApiFactory: () =>
               AudioApi(api.baseUri, client: MockClient(backend)),
         );
         await review.saveDraft(Draft(title: 'Review', text: 'Speech'));
         await tester.pumpWidget(
-          YourMettingsApp(recorder: recorder, audioReview: review),
+          YourMettingsApp(
+            recorder: recorder,
+            audioReview: review,
+            drafts: drafts,
+          ),
         );
         await tester.tap(find.text('Продолжить встречу'));
         await tester.pumpAndSettle();
@@ -84,8 +101,17 @@ void main() {
           expect(review.draft.text, 'Edited speech');
         } else {
           expect(find.byType(TranscriptPage), findsNothing);
-          expect(store.value.draft.text, 'Edited speech');
-          await tester.tap(find.text('Продолжить встречу'));
+          expect(store.value.draft.text, isEmpty);
+          expect(drafts['same-session']!.recovery.draft.text, 'Edited speech');
+          expect(find.text('Записать встречу'), findsOneWidget);
+          await tester.tap(
+            find.descendant(
+              of: find.byType(NavigationBar),
+              matching: find.text('Пространство'),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('draft-same-session')));
           await tester.pumpAndSettle();
           expect(
             tester
@@ -95,11 +121,12 @@ void main() {
             'Edited speech',
           );
         }
-        expect(recorder.state['id'], 'same-session');
-        expect(recorder.phase, 'review');
+        expect(recorder.state['id'], failure ? 'same-session' : null);
+        expect(recorder.phase, failure ? 'review' : 'done');
         expect(methods, everyElement('GET'));
         await tester.pumpWidget(const SizedBox());
         review.dispose();
+        drafts.dispose();
         recorder.dispose();
         api.close();
       },

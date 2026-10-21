@@ -12,6 +12,7 @@ import 'app/config.dart';
 import 'app/your_mettings_app.dart';
 import 'features/new_meeting/meeting_controller.dart';
 import 'services/recovery_store.dart';
+import 'services/audio_draft_store.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +30,7 @@ class _BootstrapState extends State<_Bootstrap> {
   AppearanceController? _appearance;
   RecorderCoordinator? _recorder;
   AudioReviewController? _audioReview;
+  AudioDraftRepository? _drafts;
   late Future<MeetingController> _initialization = _initialize();
   Future<MeetingController> _initialize() async {
     final directory = await getApplicationSupportDirectory();
@@ -47,14 +49,20 @@ class _BootstrapState extends State<_Bootstrap> {
       controller.api.close();
       rethrow;
     }
+    _drafts ??= AudioDraftRepository(
+      file: File('${directory.path}/audio-drafts.json'),
+    );
+    await _drafts!.load();
     _recorder ??= RecorderCoordinator();
     _audioReview ??= AudioReviewController(
       controller.api,
       FileRecoveryStore(File('${directory.path}/audio-review-recovery.json')),
       _recorder!,
+      drafts: _drafts,
     );
     await _audioReview!.initialize();
     await _recorder!.initialize();
+    await _audioReview!.recoverHandoffs();
     _controller = controller;
     return controller;
   }
@@ -63,6 +71,7 @@ class _BootstrapState extends State<_Bootstrap> {
   void dispose() {
     _audioReview?.dispose();
     _recorder?.dispose();
+    _drafts?.dispose();
     _appearance?.dispose();
     _controller?.dispose();
     _controller?.api.close();
@@ -79,6 +88,7 @@ class _BootstrapState extends State<_Bootstrap> {
           appearance: _appearance,
           recorder: _recorder,
           audioReview: _audioReview,
+          drafts: _drafts,
         );
       }
       return MaterialApp(
