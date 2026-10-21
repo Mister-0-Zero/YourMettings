@@ -344,8 +344,6 @@ class _SummaryPageViewState extends State<SummaryPageView> {
             ),
             body: Column(
               children: [
-                if (_editing)
-                  VisualEditorToolbar(document: _visual!, enabled: !_busy),
                 if (editor.saving) const LinearProgressIndicator(),
                 if (editor.error != null)
                   Semantics(
@@ -427,6 +425,18 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                     ],
                   ),
                 ),
+                if (_editing)
+                  SafeArea(
+                    top: false,
+                    child: Material(
+                      color: Theme.of(context).colorScheme.surfaceContainer,
+                      child: VisualEditorToolbar(
+                        key: const Key('editor-formatting-toolbar'),
+                        document: _visual!,
+                        enabled: !_busy,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
