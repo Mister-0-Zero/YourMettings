@@ -138,6 +138,10 @@ class ApiClient {
   );
   Future<Transcript> transcript(String id) async =>
       Transcript.fromJson(await _request('GET', 'transcripts/$id'));
+  Future<Transcript> updateTranscript(String id, String text) async =>
+      Transcript.fromJson(
+        await _request('PATCH', 'transcripts/$id', body: {'text': text}),
+      );
   Future<MeetingSummary> summary(String id) async =>
       MeetingSummary.fromJson(await _request('GET', 'summaries/$id'));
   Future<SummaryPage> summaries(

@@ -117,6 +117,18 @@ class PcmChunkWriter {
     _file?.flushSync();
   }
 
+  void release() {
+    final file = _file;
+    _file = null;
+    if (file != null) {
+      try {
+        file.flushSync();
+      } finally {
+        file.closeSync();
+      }
+    }
+  }
+
   void closeChunk() {
     if (_file == null || _bytes == 0) return;
     _file!.setPositionSync(0);

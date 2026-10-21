@@ -28,4 +28,3 @@ class AudioJournal {
   List<Json> get chunks => (data['chunks'] as List).cast<Json>();
   File chunkFile(int sequence) => File('${directory.path}/$sequence.wav');
 }
-

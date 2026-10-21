@@ -15,7 +15,16 @@ import '../meetings/folder_picker.dart';
 import 'meeting_controller.dart';
 
 class TranscriptPage extends StatefulWidget {
-  const TranscriptPage({super.key, required this.controller});
+  const TranscriptPage({
+    super.key,
+    required this.controller,
+    this.onRecord,
+    this.audioReview = false,
+    this.reviewNotice,
+  });
+  final Future<void> Function(Draft)? onRecord;
+  final bool audioReview;
+  final Widget? reviewNotice;
   final MeetingController controller;
   @override
   State<TranscriptPage> createState() => _TranscriptPageState();
@@ -170,7 +179,11 @@ class _TranscriptPageState extends State<TranscriptPage> {
       ),
     );
     if (widget.controller.storageError == null) {
-      await widget.controller.submit();
+      if (widget.onRecord != null) {
+        await widget.onRecord!(widget.controller.draft);
+      } else {
+        await widget.controller.submit();
+      }
     }
   }
 
@@ -186,7 +199,11 @@ class _TranscriptPageState extends State<TranscriptPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Транскрипт встречи')),
+    appBar: AppBar(
+      title: Text(
+        widget.onRecord == null ? 'Транскрипт встречи' : 'Перед записью',
+      ),
+    ),
     floatingActionButton: AnimatedBuilder(
       animation: Listenable.merge([widget.controller, _text]),
       builder: (context, _) {
@@ -242,27 +259,29 @@ class _TranscriptPageState extends State<TranscriptPage> {
                       : null,
                 ),
                 const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _importing ? null : _import,
-                  icon: const Icon(Icons.upload_file),
-                  label: const Text('Выбрать файл .txt'),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _text,
-                  onChanged: (_) => _save(),
-                  minLines: 8,
-                  maxLines: 18,
-                  decoration: const InputDecoration(
-                    labelText: 'Текст транскрипта',
-                    hintText: 'Вставьте текст или загрузите файл .txt',
+                if (widget.onRecord == null && !widget.audioReview)
+                  OutlinedButton.icon(
+                    onPressed: _importing ? null : _import,
+                    icon: const Icon(Icons.upload_file),
+                    label: const Text('Выбрать файл .txt'),
                   ),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Добавьте текст транскрипта'
-                      : value.runes.length > 100000
-                      ? 'Максимум 100 000 символов'
-                      : null,
-                ),
+                const SizedBox(height: 12),
+                if (widget.onRecord == null)
+                  TextFormField(
+                    controller: _text,
+                    onChanged: (_) => _save(),
+                    minLines: 8,
+                    maxLines: 18,
+                    decoration: const InputDecoration(
+                      labelText: 'Текст транскрипта',
+                      hintText: 'Вставьте текст или загрузите файл .txt',
+                    ),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Добавьте текст транскрипта'
+                        : value.runes.length > 100000
+                        ? 'Максимум 100 000 символов'
+                        : null,
+                  ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   key: _settingsAnchor,
@@ -386,6 +405,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                     ),
                   ],
                 ),
+                if (widget.reviewNotice != null) widget.reviewNotice!,
                 if (_inputError != null ||
                     controller.error != null ||
                     controller.storageError != null)
@@ -404,7 +424,13 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 FilledButton.icon(
                   onPressed: controller.working ? null : _submit,
                   icon: const Icon(Icons.auto_awesome_outlined),
-                  label: const Text('Обработать'),
+                  label: Text(
+                    widget.onRecord != null
+                        ? 'Начать запись'
+                        : widget.audioReview
+                        ? 'Подтвердить и создать summary'
+                        : 'Обработать',
+                  ),
                 ),
               ],
             ),

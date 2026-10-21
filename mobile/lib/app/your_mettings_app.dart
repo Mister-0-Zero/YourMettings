@@ -1,3 +1,6 @@
+import '../features/recording/recorder_coordinator.dart';
+import '../features/recording/audio_review_controller.dart';
+import '../features/recording/recorder_page.dart';
 import 'appearance.dart';
 
 import 'package:flutter_quill/flutter_quill.dart'
@@ -11,9 +14,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 class YourMettingsApp extends StatefulWidget {
-  const YourMettingsApp({super.key, this.controller, this.appearance});
+  const YourMettingsApp({
+    super.key,
+    this.controller,
+    this.appearance,
+    this.recorder,
+    this.audioReview,
+  });
   final MeetingController? controller;
   final AppearanceController? appearance;
+  final RecorderCoordinator? recorder;
+  final AudioReviewController? audioReview;
   @override
   State<YourMettingsApp> createState() => _YourMettingsAppState();
 }
@@ -47,15 +58,25 @@ class _YourMettingsAppState extends State<YourMettingsApp> {
       home: MeetingShell(
         controller: widget.controller,
         appearance: _appearance,
+        recorder: widget.recorder,
+        audioReview: widget.audioReview,
       ),
     ),
   );
 }
 
 class MeetingShell extends StatefulWidget {
-  const MeetingShell({super.key, this.controller, required this.appearance});
+  const MeetingShell({
+    super.key,
+    this.controller,
+    required this.appearance,
+    this.recorder,
+    this.audioReview,
+  });
   final MeetingController? controller;
   final AppearanceController appearance;
+  final RecorderCoordinator? recorder;
+  final AudioReviewController? audioReview;
 
   @override
   State<MeetingShell> createState() => _MeetingShellState();
@@ -79,8 +100,11 @@ class _MeetingShellState extends State<MeetingShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       widget.controller?.resume();
+      widget.audioReview?.resume();
+      widget.recorder?.foreground();
     } else {
       widget.controller?.pause();
+      widget.audioReview?.pause();
     }
   }
 
@@ -94,7 +118,11 @@ class _MeetingShellState extends State<MeetingShell>
       child: IndexedStack(
         index: _selected,
         children: [
-          NewMeetingPage(controller: widget.controller),
+          NewMeetingPage(
+            controller: widget.controller,
+            recorder: widget.recorder,
+            audioReview: widget.audioReview,
+          ),
           widget.controller == null
               ? const PlaceholderPage(
                   icon: Icons.folder_open_outlined,
@@ -151,12 +179,22 @@ class _MeetingShellState extends State<MeetingShell>
 }
 
 class NewMeetingPage extends StatelessWidget {
-  const NewMeetingPage({super.key, this.controller});
+  const NewMeetingPage({
+    super.key,
+    this.controller,
+    this.recorder,
+    this.audioReview,
+  });
+  final RecorderCoordinator? recorder;
+  final AudioReviewController? audioReview;
   final MeetingController? controller;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: controller ?? const AlwaysStoppedAnimation<int>(0),
+    animation: Listenable.merge([
+      ?controller,
+      ?recorder,
+    ]),
     builder: (context, _) => ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -211,9 +249,20 @@ class NewMeetingPage extends StatelessWidget {
         const SizedBox(height: 20),
         Text('Другие способы', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        const _UnavailableAction(
-          icon: Icons.mic_none,
-          title: 'Записать встречу',
+        ListTile(
+          leading: const Icon(Icons.mic_none),
+          title: Text(
+            recorder?.active == true ? 'Открыть запись' : 'Записать встречу',
+          ),
+          enabled: recorder != null && audioReview != null,
+          onTap: recorder == null || audioReview == null
+              ? null
+              : () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        RecorderPage(recorder: recorder!, review: audioReview!),
+                  ),
+                ),
         ),
         const _UnavailableAction(
           icon: Icons.audio_file_outlined,

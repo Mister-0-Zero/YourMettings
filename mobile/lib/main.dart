@@ -1,3 +1,5 @@
+import 'features/recording/recorder_coordinator.dart';
+import 'features/recording/audio_review_controller.dart';
 import 'app/appearance.dart';
 
 import 'dart:io';
@@ -25,6 +27,8 @@ class _Bootstrap extends StatefulWidget {
 class _BootstrapState extends State<_Bootstrap> {
   MeetingController? _controller;
   AppearanceController? _appearance;
+  RecorderCoordinator? _recorder;
+  AudioReviewController? _audioReview;
   late Future<MeetingController> _initialization = _initialize();
   Future<MeetingController> _initialize() async {
     final directory = await getApplicationSupportDirectory();
@@ -43,12 +47,22 @@ class _BootstrapState extends State<_Bootstrap> {
       controller.api.close();
       rethrow;
     }
+    _recorder ??= RecorderCoordinator();
+    _audioReview ??= AudioReviewController(
+      controller.api,
+      FileRecoveryStore(File('${directory.path}/audio-review-recovery.json')),
+      _recorder!,
+    );
+    await _audioReview!.initialize();
+    await _recorder!.initialize();
     _controller = controller;
     return controller;
   }
 
   @override
   void dispose() {
+    _audioReview?.dispose();
+    _recorder?.dispose();
     _appearance?.dispose();
     _controller?.dispose();
     _controller?.api.close();
@@ -63,6 +77,8 @@ class _BootstrapState extends State<_Bootstrap> {
         return YourMettingsApp(
           controller: snapshot.data,
           appearance: _appearance,
+          recorder: _recorder,
+          audioReview: _audioReview,
         );
       }
       return MaterialApp(

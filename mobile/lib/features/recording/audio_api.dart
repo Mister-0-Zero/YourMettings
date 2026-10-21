@@ -12,13 +12,29 @@ class AudioApi {
   AudioApi(this.base, {http.Client? client}) : client = client ?? http.Client();
   final Uri base;
   final http.Client client;
-  Future<Json> _send(http.BaseRequest request) async {
+  Future<Json> _send(http.BaseRequest request, Completer<void> abort) async {
     try {
       final response = await client
           .send(request)
           .then(http.Response.fromStream)
-          .timeout(const Duration(minutes: 2));
-      final value = jsonDecode(utf8.decode(response.bodyBytes)) as Json;
+          .timeout(
+            const Duration(minutes: 2),
+            onTimeout: () {
+              if (!abort.isCompleted) abort.complete();
+              throw TimeoutException('Audio HTTP deadline');
+            },
+          );
+      Json value = {};
+      try {
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+        if (decoded is Json) {
+          value = decoded;
+        } else if (response.statusCode >= 200 && response.statusCode < 300) {
+          throw const FormatException();
+        }
+      } on FormatException {
+        if (response.statusCode >= 200 && response.statusCode < 300) rethrow;
+      }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final error = value['error'] as Json?;
         throw ApiException(
@@ -49,18 +65,24 @@ class AudioApi {
   }
 
   Future<Json> json(String method, String path, {Json? body, String? key}) {
-    final request = http.Request(method, base.resolve('audio-sessions$path'));
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(
+      method,
+      base.resolve('audio-sessions$path'),
+      abortTrigger: abort.future,
+    );
     request.headers['Accept'] = 'application/json';
     if (key != null) request.headers['Idempotency-Key'] = key;
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
-    return _send(request);
+    return _send(request, abort);
   }
 
   Future<Json> upload(String id, File file, Json chunk, String hash) async {
-    final request = http.StreamedRequest(
+    final abort = Completer<void>();
+    final request = http.AbortableStreamedRequest(
       'POST',
       base
           .resolve('audio-sessions/$id/chunks')
@@ -73,13 +95,14 @@ class AudioApi {
               'content_sha256': hash,
             },
           ),
+      abortTrigger: abort.future,
     );
     request.headers['Content-Type'] = 'application/octet-stream';
     request.contentLength = await file.length();
-    final sending = _send(request);
+    final sending = _send(request, abort);
     unawaited(
       file.openRead().pipe(request.sink).catchError((Object e) {
-        request.sink.addError(e);
+        if (!abort.isCompleted) abort.complete();
       }),
     );
     return sending;
