@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 
 from app.core.config import settings
 from app.db.models import Base
+from app.db import audio_models  # Register audio metadata for Alembic checks.
 
 target_metadata = Base.metadata
 url = context.config.attributes.get("database_url") or settings.database_url
