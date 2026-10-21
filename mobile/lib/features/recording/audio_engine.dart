@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 import '../../api/api_client.dart';
 import '../../models/api_models.dart';
 import 'audio_api.dart';
+import 'audio_meter.dart';
 import 'audio_journal.dart';
 import 'pcm_chunk_writer.dart';
 import 'microphone_capture.dart';
@@ -19,6 +20,7 @@ class AudioEngine {
     this.journal,
     this.api, {
     this.changed,
+    this.meterChanged,
     MicrophoneCapture? capture,
     this.allowCapture = true,
   }) : recorder = capture ?? RecordMicrophone();
@@ -26,6 +28,12 @@ class AudioEngine {
   final AudioJournal journal;
   final AudioApi api;
   final void Function(Json)? changed;
+  final void Function(List<AudioPeak>)? meterChanged;
+  AudioMeter? _meter;
+  void setMeterEnabled(bool enabled) {
+    _meter = enabled ? AudioMeter() : null;
+  }
+
   final MicrophoneCapture recorder;
   PcmChunkWriter? writer;
   StreamSubscription<Uint8List>? _stream;
@@ -185,6 +193,16 @@ class AudioEngine {
           _captureFailed = true;
           journal.data['message'] = 'Не удалось записать аудио на устройство. Запись остановлена; сохранённые файлы не удалены.';
           unawaited(stop(interrupted: true));
+        }
+        // Metering is optional UI telemetry. It cannot fail or delay capture,
+        // journal writes or upload acknowledgements.
+        if (!_captureFailed && phase == 'recording' && _meter != null) {
+          try {
+            final peaks = _meter!.add(bytes);
+            if (peaks.isNotEmpty) meterChanged?.call(peaks);
+          } catch (_) {
+            /* Display telemetry never stops recording. */
+          }
         }
       },
       onDone: () {

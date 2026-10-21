@@ -187,6 +187,51 @@ void main() {
     },
   );
   test(
+    'meter telemetry failure cannot interrupt or change recorded PCM',
+    () async {
+      journal.data['phase'] = 'prepared';
+      journal.saveSync();
+      final mic = FakeMic();
+      var callbacks = 0;
+      final engine = AudioEngine(
+        journal,
+        AudioApi(
+          Uri.parse('http://example/'),
+          client: MockClient(
+            (_) async => throw http.ClientException('offline'),
+          ),
+        ),
+        capture: mic,
+        meterChanged: (_) {
+          callbacks++;
+          throw StateError('UI detached');
+        },
+      );
+      await engine.initialize();
+      final bytes = Uint8List(2560);
+      final data = ByteData.sublistView(bytes);
+      for (var i = 0; i < bytes.length; i += 2) {
+        data.setInt16(i, (i ~/ 2).isEven ? 8000 : -8000, Endian.little);
+      }
+      engine.setMeterEnabled(true);
+      mic.audio.add(bytes);
+      await Future<void>.delayed(Duration.zero);
+      expect(callbacks, 1);
+      expect(engine.phase, 'recording');
+      engine.setMeterEnabled(false);
+      mic.audio.add(bytes);
+      await Future<void>.delayed(Duration.zero);
+      expect(callbacks, 1);
+      await engine.stop();
+      expect(engine.snapshot['elapsed_ms'], 160);
+      expect(journal.chunkFile(0).readAsBytesSync().sublist(44), [
+        ...bytes,
+        ...bytes,
+      ]);
+      await engine.dispose();
+    },
+  );
+  test(
     'continuous microphone, repeated pause/resume, timer follows samples',
     () async {
       journal.data['phase'] = 'prepared';

@@ -187,7 +187,8 @@ class _RecorderPageState extends State<RecorderPage> {
               ),
               const SizedBox(height: 12),
               AudioWave(
-                level: (recorder.state['level'] as num? ?? 0).toDouble(),
+                samples: recorder.meter,
+                onVisibilityChanged: recorder.setMeterVisible,
                 active: phase == 'recording',
               ),
               const SizedBox(height: 32),

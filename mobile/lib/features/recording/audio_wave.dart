@@ -1,12 +1,21 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-/// UI-only animation. Capture and upload never depend on this widget's ticker.
+import 'audio_meter.dart';
+
+/// Recent microphone extrema, scrolled at their actual 40 ms sample interval.
 class AudioWave extends StatefulWidget {
-  const AudioWave({super.key, required this.level, required this.active});
-  final double level;
+  const AudioWave({
+    super.key,
+    required this.samples,
+    required this.active,
+    this.onVisibilityChanged,
+  });
+  final ValueListenable<List<AudioPeak>> samples;
   final bool active;
+  final ValueChanged<bool>? onVisibilityChanged;
   @override
   State<AudioWave> createState() => _AudioWaveState();
 }
@@ -15,34 +24,44 @@ class _AudioWaveState extends State<AudioWave>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _motion = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 2400),
+    duration: const Duration(seconds: 2),
   )..addListener(_tick);
-  double _amplitude = 0;
+  final _history = WaveformHistory();
   Duration _last = Duration.zero;
-  bool _foreground = true;
+  bool _foreground = true, _visible = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.samples.addListener(_samples);
+  }
+
+  void _samples() {
+    if (_visible) _history.add(widget.samples.value);
   }
 
   void _tick() {
     final elapsed = _motion.lastElapsedDuration ?? Duration.zero;
     final dt = ((elapsed - _last).inMicroseconds / 1000000).clamp(0.0, 0.05);
     _last = elapsed;
-    final target = widget.active ? widget.level.clamp(0.0, 1.0) : 0.0;
-    _amplitude += (target - _amplitude) * (1 - math.exp(-dt / 0.22));
+    _history.advance(dt);
   }
 
   void _update() {
-    if (widget.active && _foreground && TickerMode.valuesOf(context).enabled) {
+    final visible =
+        widget.active && _foreground && TickerMode.valuesOf(context).enabled;
+    if (visible != _visible) {
+      _visible = visible;
+      widget.onVisibilityChanged?.call(visible);
+    }
+    if (visible) {
       if (!_motion.isAnimating) {
         _last = Duration.zero;
         _motion.repeat();
       }
     } else {
       _motion.stop();
-      if (!widget.active) _amplitude = 0;
+      _history.suspend();
     }
   }
 
@@ -55,6 +74,10 @@ class _AudioWaveState extends State<AudioWave>
   @override
   void didUpdateWidget(covariant AudioWave old) {
     super.didUpdateWidget(old);
+    if (old.samples != widget.samples) {
+      old.samples.removeListener(_samples);
+      widget.samples.addListener(_samples);
+    }
     _update();
   }
 
@@ -66,6 +89,8 @@ class _AudioWaveState extends State<AudioWave>
 
   @override
   void dispose() {
+    widget.samples.removeListener(_samples);
+    if (_visible) widget.onVisibilityChanged?.call(false);
     WidgetsBinding.instance.removeObserver(this);
     _motion.dispose();
     super.dispose();
@@ -74,16 +99,18 @@ class _AudioWaveState extends State<AudioWave>
   @override
   Widget build(BuildContext context) => Semantics(
     label: 'Уровень микрофона',
-    child: SizedBox(
-      height: 64,
-      width: double.infinity,
-      child: CustomPaint(
-        painter: _WavePainter(
-          _motion,
-          () => _amplitude,
-          widget.active
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.outline,
+    child: RepaintBoundary(
+      child: SizedBox(
+        height: 88,
+        width: double.infinity,
+        child: CustomPaint(
+          painter: _WavePainter(
+            _motion,
+            _history,
+            widget.active
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.outline,
+          ),
         ),
       ),
     ),
@@ -91,40 +118,66 @@ class _AudioWaveState extends State<AudioWave>
 }
 
 class _WavePainter extends CustomPainter {
-  _WavePainter(this.motion, this.amplitude, this.color)
-    : super(repaint: motion);
+  _WavePainter(this.motion, this.history, this.color) : super(repaint: motion);
   final Animation<double> motion;
-  final double Function() amplitude;
+  final WaveformHistory history;
   final Color color;
+  double _height(double value, double height) {
+    // Perceptual display gain only. Quiet speech remains visible; PCM is intact.
+    if (value <= 0.001) return 0.5;
+    final normal = ((20 * math.log(value) / math.ln10 + 60) / 60).clamp(
+      0.0,
+      1.0,
+    );
+    return 0.5 + math.pow(normal, 0.65) * height * 0.44;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5
+      ..strokeWidth = 2
       ..strokeCap = StrokeCap.round;
-    final path = Path();
-    final phase = motion.value * 2 * math.pi;
-    final height = 3 + amplitude() * size.height * 0.34;
-    for (var i = 0; i <= 120; i++) {
-      final t = i / 120;
-      final envelope = math.pow(math.sin(math.pi * t), 1.2);
-      final y =
-          size.height / 2 +
-          height *
-              envelope *
-              (math.sin(t * math.pi * 5 - phase) +
-                  0.2 * math.sin(t * math.pi * 9 + phase));
-      if (i == 0) {
-        path.moveTo(0, y);
-      } else {
-        path.lineTo(size.width * t, y);
-      }
+    final step = size.width / WaveformHistory.capacity;
+    final points = <Offset>[];
+    final peaks = [...history.peaks, history.next];
+    for (var i = 0; i < peaks.length; i++) {
+      final x = (i - history.scrollFraction) * step;
+      points.add(
+        Offset(
+          x + step * 0.25,
+          size.height / 2 - _height(peaks[i].high, size.height),
+        ),
+      );
+      points.add(
+        Offset(
+          x + step * 0.75,
+          size.height / 2 + _height(-peaks[i].low, size.height),
+        ),
+      );
     }
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var i = 1; i < points.length; i++) {
+      final previous = points[i - 1];
+      final next = points[i];
+      final rounding = (next.dx - previous.dx) * 0.25;
+      path.cubicTo(
+        previous.dx + rounding,
+        previous.dy,
+        next.dx - rounding,
+        next.dy,
+        next.dx,
+        next.dy,
+      );
+    }
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
     canvas.drawPath(path, paint);
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _WavePainter old) =>
-      old.color != color || old.amplitude != amplitude;
+      old.color != color || old.history != history;
 }

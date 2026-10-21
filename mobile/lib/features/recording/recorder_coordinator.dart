@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 import '../../app/config.dart';
 import '../../models/api_models.dart';
 import 'audio_api.dart';
+import 'audio_meter.dart';
 import 'audio_engine.dart';
 import 'audio_journal.dart';
 import 'microphone_capture.dart';
@@ -30,6 +31,11 @@ class _AudioTask extends TaskHandler {
       journal,
       AudioApi(AppConfig.apiBaseUri()),
       changed: FlutterForegroundTask.sendDataToMain,
+      meterChanged: (peaks) => FlutterForegroundTask.sendDataToMain({
+        'meter': [
+          for (final peak in peaks) [peak.low, peak.high],
+        ],
+      }),
       // record_android 2.2 requires an Activity even for a permission CHECK.
       // Permission was requested by UI; Android enforces it when starting this
       // microphone FGS and again when opening AudioRecord. No permission bypass.
@@ -67,6 +73,10 @@ class _AudioTask extends TaskHandler {
   @override
   void onReceiveData(Object data) {
     if (engine == null) return;
+    if (data is Map && data['meter_enabled'] is bool) {
+      engine!.setMeterEnabled(data['meter_enabled'] as bool);
+      return;
+    }
     if (data is String) unawaited(_command(data));
     if (data is Map && data['command'] is String) {
       unawaited(
@@ -138,6 +148,19 @@ class _AudioTask extends TaskHandler {
 class RecorderCoordinator extends ChangeNotifier {
   RecorderCoordinator();
   Json state = {};
+  final meter = ValueNotifier<List<AudioPeak>>([]);
+  bool _meterVisible = false;
+  void setMeterVisible(bool visible) {
+    if (_meterVisible == visible) return;
+    _meterVisible = visible;
+    if (_local != null) {
+      _local!.setMeterEnabled(visible);
+    } else if (Platform.isAndroid) {
+      FlutterForegroundTask.sendDataToTask({'meter_enabled': visible});
+    }
+    if (!visible) meter.value = [];
+  }
+
   AudioEngine? _local;
   Timer? _poll;
   int _requestId = 0;
@@ -170,6 +193,15 @@ class RecorderCoordinator extends ChangeNotifier {
   }
 
   void _receive(Object value) {
+    if (value is Map && value['meter'] is List) {
+      if (_meterVisible) {
+        meter.value = [
+          for (final pair in value['meter'] as List)
+            AudioPeak((pair[0] as num).toDouble(), (pair[1] as num).toDouble()),
+        ];
+      }
+      return;
+    }
     if (value is Map && value['command_reply'] is int) {
       _replies.remove(value['command_reply'])?.complete(value['ok'] == true);
       return;
@@ -187,9 +219,13 @@ class RecorderCoordinator extends ChangeNotifier {
       journal,
       AudioApi(AppConfig.apiBaseUri()),
       changed: _receive,
+      meterChanged: (peaks) {
+        if (_meterVisible) meter.value = peaks;
+      },
       allowCapture: !Platform.isAndroid,
     );
     await _local!.initialize();
+    _local!.setMeterEnabled(_meterVisible);
   }
 
   Future<void> start(Json parameters) async {
@@ -339,6 +375,8 @@ class RecorderCoordinator extends ChangeNotifier {
     if (Platform.isAndroid) {
       FlutterForegroundTask.removeTaskDataCallback(_receive);
     }
+    setMeterVisible(false);
+    meter.dispose();
     // Recording lifetime belongs to the app/service, not to its current route.
     unawaited(_local?.dispose());
     super.dispose();
