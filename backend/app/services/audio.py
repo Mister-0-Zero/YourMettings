@@ -139,7 +139,7 @@ def finish_chunk(db, job, generation, *, text=None, segments=None, error=None):
     state = db.get(ASRWorkerState, 1)
     session = db.scalar(select(AudioSession).where(AudioSession.id == job["session_id"]).with_for_update())
     chunk = db.scalar(select(AudioChunk).where(AudioChunk.id == job["id"]).with_for_update())
-    if not state or state.generation != generation or not chunk or chunk.claimed_by != generation or chunk.attempt != job["attempt"] or chunk.status != "transcribing":
+    if not session or not state or state.generation != generation or not chunk or chunk.claimed_by != generation or chunk.attempt != job["attempt"] or chunk.status != "transcribing":
         return False
     if error:
         chunk.status, chunk.error_code = "failed", error

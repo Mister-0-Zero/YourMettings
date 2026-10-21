@@ -1,7 +1,7 @@
 """Transactional deletion policy; callers own the transaction and row locks."""
 import hashlib
 
-from sqlalchemy import column, select, table, text
+from sqlalchemy import and_, column, select, table, text
 
 from app.db.models import Summary, Transcript
 from app.db.session import TEST_USER_ID
@@ -15,24 +15,35 @@ def lock_user_data(db, user_id=TEST_USER_ID):
 
 
 def has_external_references(db, transcript_id):
+    return has_references(db, "transcripts", [transcript_id], ignored={("audio_sessions", "transcript_id")})
+
+
+def has_references(db, target, ids, *, ignored=frozenset()):
     # Future sharing/ACL tables must use a FK to transcripts. Conservatively
     # preserve any referenced transcript, including CASCADE references.
     references = db.execute(text("""
-        SELECT n.nspname, t.relname, a.attname
+        SELECT n.nspname, t.relname, parent_ns.nspname,
+               array_agg(a.attname ORDER BY k.position), array_agg(r.attname ORDER BY k.position)
         FROM pg_constraint c
         JOIN pg_class t ON t.oid=c.conrelid
         JOIN pg_namespace n ON n.oid=t.relnamespace
-        CROSS JOIN LATERAL unnest(c.conkey, c.confkey) AS k(src, dst)
+        JOIN pg_class parent ON parent.oid=c.confrelid
+        JOIN pg_namespace parent_ns ON parent_ns.oid=parent.relnamespace
+        CROSS JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS k(src, dst, position)
         JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.src
         JOIN pg_attribute r ON r.attrelid=c.confrelid AND r.attnum=k.dst
-        WHERE c.contype='f' AND c.confrelid='transcripts'::regclass
-          AND r.attname='id'
-    """))
-    for schema, name, field in references:
-        if name == "audio_sessions":
-            continue  # Handled explicitly below, including unconfirmed review.
-        referenced = table(name, column(field), schema=schema)
-        if db.scalar(select(referenced.c[field]).where(referenced.c[field] == transcript_id).limit(1)) is not None:
+        WHERE c.contype='f' AND c.confrelid=to_regclass(:target)
+        GROUP BY c.oid, n.nspname, t.relname, parent_ns.nspname
+    """), {"target": target})
+    for schema, name, target_schema, fields, target_fields in references:
+        if schema == target_schema and all((name, field) in ignored for field in fields):
+            continue
+        referenced = table(name, *(column(field) for field in fields), schema=schema).alias("dependent")
+        parent = table(target, *(column(field) for field in dict.fromkeys(["id", *target_fields])),
+            schema=target_schema).alias("deleting_parent")
+        condition = and_(*(referenced.c[src] == parent.c[dst] for src, dst in zip(fields, target_fields)))
+        query = select(parent.c.id).select_from(referenced.join(parent, condition)).where(parent.c.id.in_(ids)).limit(1)
+        if db.scalar(query) is not None:
             return True
     return False
 

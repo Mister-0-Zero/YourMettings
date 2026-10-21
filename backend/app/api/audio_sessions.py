@@ -14,7 +14,7 @@ from app.api.errors import fail
 from app.api.transcripts import accept_processing, commit_and_schedule
 from app.audio_schemas import AudioSessionInput, AudioComplete, AudioConfirm, AudioRetry, AudioSessionOut, AudioChunkAccepted
 from app.core.config import settings
-from app.db.audio_models import AudioChunk, AudioSession
+from app.db.audio_models import AudioChunk, AudioSession, AudioSessionDeletion
 from app.db.session import TEST_USER_ID, get_db
 from app.integrations.ollama import get_generator
 from app.schemas import ProcessingOut
@@ -22,11 +22,13 @@ from app.services.audio import owned_session, session_response, duplicate_chunk,
 from app.services.audio_validation import validate_audio
 from app.services.deletion import lock_user_data
 from app.services.processing import processing_response
+from app.services.audio_deletion import delete_unconfirmed_session, guard_audio_upload
 
 router = APIRouter(prefix="/audio-sessions", tags=["audio sessions"])
 
 
-@router.post("", status_code=201, response_model=AudioSessionOut)
+@router.post("", status_code=201, response_model=AudioSessionOut,
+    responses={410: {"description": "The session accepted with this key was explicitly deleted"}})
 def create(body: AudioSessionInput, response: Response,
     idempotency_key: Annotated[str | None, Header(min_length=1, max_length=128)] = None,
     db: Session = Depends(get_db)):
@@ -35,6 +37,12 @@ def create(body: AudioSessionInput, response: Response,
     canonical = {**params, "folder_ids": sorted(params["folder_ids"]), "focus_areas": sorted(params["focus_areas"])}
     digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     if idempotency_key:
+        deleted = db.scalar(select(AudioSessionDeletion).where(
+            AudioSessionDeletion.user_id == TEST_USER_ID, AudioSessionDeletion.idempotency_key == idempotency_key))
+        if deleted:
+            if deleted.request_hash != digest:
+                fail(409, "idempotency_conflict", "Ключ уже использован для другого запроса.")
+            fail(410, "audio_session_deleted", "Эта аудиовстреча намеренно удалена; начните новую запись с новым ключом.")
         existing = db.scalar(select(AudioSession).where(AudioSession.user_id == TEST_USER_ID, AudioSession.idempotency_key == idempotency_key))
         if existing:
             if existing.request_hash != digest:
@@ -53,7 +61,19 @@ def get_session(id: UUID, db: Session = Depends(get_db)):
     return session_response(db, owned_session(db, id))
 
 
+@router.delete("/{id}", status_code=204, responses={
+    404: {"description": "Unknown or inaccessible session"},
+    409: {"description": "Unsupported state, active upload, dependencies or failed safe cleanup"},
+    422: {"description": "Explicit confirmation required or invalid query"},
+    503: {"description": "Database unavailable"}})
+def delete_session(id: UUID, confirm: bool = Query(False), db: Session = Depends(get_db)):
+    delete_unconfirmed_session(db, id, confirm=confirm)
+    db.commit()
+    return Response(status_code=204)
+
+
 @router.post("/{id}/chunks", response_model=AudioChunkAccepted, status_code=201,
+    dependencies=[Depends(guard_audio_upload)],
     openapi_extra={"requestBody": {"required": True, "content": {
         "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}})
 async def upload(id: UUID, request: Request, response: Response,

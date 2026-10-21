@@ -69,7 +69,7 @@ def main():
         try:
             job = json.loads(line)
             started = time.monotonic()
-            with tempfile.TemporaryDirectory(prefix="decode-", dir=os.environ["YM_ASR_TEMP"]) as folder:
+            with tempfile.TemporaryDirectory(prefix="decode-", dir=Path(job["path"]).parent) as folder:
                 wav = Path(folder) / "input.wav"
                 decoded = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe",
                     "-f", job["format"], "-i", job["path"], "-map", "0:a:0", "-ac", "1", "-ar", "16000",
@@ -84,8 +84,10 @@ def main():
                 torch.cuda.synchronize()
                 segments = ([{"start": s.start, "end": s.end, "text": s.text} for s in result]
                     if duration > 25 else [{"start": 0, "end": duration, "text": result.text}])
-                send({"text": result.text, "segments": segments, "seconds": round(time.monotonic()-started, 3),
-                    "audio_seconds": duration, "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20, 1)})
+                message = {"text": result.text, "segments": segments, "seconds": round(time.monotonic()-started, 3),
+                    "audio_seconds": duration, "peak_allocated_mib": round(torch.cuda.max_memory_allocated()/2**20, 1)}
+            # A result is publishable only after decoder scratch has been removed.
+            send(message)
         except Exception as exc:
             send({"error": "asr_gpu_memory" if "out of memory" in str(exc).lower() else "asr_transcription_failed"})
     return 0

@@ -48,6 +48,17 @@ class AudioChunk(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AudioSessionDeletion(Base):
+    """Minimal durable receipt; no transcript, audio, title or folder metadata."""
+    __tablename__ = "audio_session_deletions"
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key"),)
+    session_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ASRWorkerState(Base):
     __tablename__ = "asr_worker_state"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

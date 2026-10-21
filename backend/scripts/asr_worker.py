@@ -120,7 +120,7 @@ class Coordinator:
                         continue
                     self.status, self.last_pulse = "busy", 0
                     try:
-                        with tempfile.TemporaryDirectory(prefix="job-", dir=SCRATCH) as folder:
+                        with tempfile.TemporaryDirectory(prefix=f"job-{job['session_id']}-", dir=SCRATCH) as folder:
                             source = Path(folder) / "audio.bin"
                             source.write_bytes(job.pop("payload"))
                             with gpu_slot(self.factory, settings.asr_gpu_serial, on_wait=self.pulse):
