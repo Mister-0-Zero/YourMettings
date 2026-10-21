@@ -16,6 +16,7 @@ class VisualSection {
   final String source;
   final VisualMarkdown? bridge;
   final q.QuillController? controller;
+  final editorKey = GlobalKey<q.EditorState>();
   final focus = FocusNode();
   final scroll = ScrollController();
   StreamSubscription<q.DocChange>? subscription;

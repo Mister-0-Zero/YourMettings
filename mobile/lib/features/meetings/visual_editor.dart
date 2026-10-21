@@ -27,27 +27,33 @@ class VisualEditorToolbar extends StatelessWidget {
       }
       return IgnorePointer(
         ignoring: !enabled,
-        child: q.QuillSimpleToolbar(
-          key: ValueKey(active),
-          controller: active.controller!,
-          config: const q.QuillSimpleToolbarConfig(
-            multiRowsDisplay: false,
-            showDividers: false,
-            showFontFamily: false,
-            showFontSize: false,
-            showUnderLineButton: false,
-            showStrikeThrough: false,
-            showInlineCode: false,
-            showColorButton: false,
-            showBackgroundColorButton: false,
-            showClearFormat: false,
-            showListCheck: false,
-            showCodeBlock: false,
-            showQuote: false,
-            showIndent: false,
-            showSearchButton: false,
-            showSubscript: false,
-            showSuperscript: false,
+        child: Listener(
+          // A selection menu must not cover the heading popup. Keep the range,
+          // handles and keyboard; copy/paste remains available on selection.
+          onPointerDown: (_) =>
+              active.editorKey.currentState?.hideToolbar(false),
+          child: q.QuillSimpleToolbar(
+            key: ValueKey(active),
+            controller: active.controller!,
+            config: const q.QuillSimpleToolbarConfig(
+              multiRowsDisplay: false,
+              showDividers: false,
+              showFontFamily: false,
+              showFontSize: false,
+              showUnderLineButton: false,
+              showStrikeThrough: false,
+              showInlineCode: false,
+              showColorButton: false,
+              showBackgroundColorButton: false,
+              showClearFormat: false,
+              showListCheck: false,
+              showCodeBlock: false,
+              showQuote: false,
+              showIndent: false,
+              showSearchButton: false,
+              showSubscript: false,
+              showSuperscript: false,
+            ),
           ),
         ),
       );
@@ -125,6 +131,7 @@ class VisualEditorBody extends StatelessWidget {
               focusNode: section.focus,
               scrollController: section.scroll,
               config: q.QuillEditorConfig(
+                editorKey: section.editorKey,
                 onLaunchUrl: (url) => openExternalLink(context, url),
                 scrollable: false,
                 embedBuilders: const [_DividerBuilder()],

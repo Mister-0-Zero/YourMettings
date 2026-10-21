@@ -62,6 +62,8 @@ void main() {
         tester.view.viewInsets = const FakeViewPadding(bottom: 960);
         await tester.pumpAndSettle();
         final selection = editor.controller.selection;
+        editor.config.editorKey!.currentState!.showToolbar();
+        await tester.pumpAndSettle();
         final toolbar = find.byKey(const Key('editor-formatting-toolbar'));
         const keyboardTop = (2736 - 960) / 3;
         expect(tester.getBottomRight(toolbar).dy, closeTo(keyboardTop, 1));
@@ -74,6 +76,7 @@ void main() {
         );
         await tester.pump();
         expect(editor.controller.selection, selection);
+        expect(find.text('Copy'), findsNothing);
         await tester.tap(
           find.byType(q.QuillToolbarSelectHeaderStyleDropdownButton),
         );
