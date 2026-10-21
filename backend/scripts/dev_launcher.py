@@ -28,6 +28,9 @@ class Config:
     model: str = ""
     lan_host: str = "192.168.1.100"
     service: str = ""
+    asr_enabled: bool = True
+    asr_home: Path | None = None
+    asr_timeout: int = 180
 
     @property
     def python(self):
@@ -181,6 +184,13 @@ class System:
         self.spawn("ollama", [executable, "serve"], env=env)
 
     def load_model(self):
+        from app.db.session import get_session_factory
+        from app.core.config import settings
+        from app.services.gpu import gpu_slot
+        with gpu_slot(get_session_factory(), settings.asr_gpu_serial):
+            self._load_model()
+
+    def _load_model(self):
         try:
             with httpx.Client(timeout=180, trust_env=False) as client:
                 response = client.post(self.config.ollama_url + "/api/generate", json={
@@ -196,6 +206,39 @@ class System:
         self.spawn("backend", [str(self.config.python), "-m", "app.run",
             "--lan-host", self.config.lan_host, "--port", "8000"])
 
+    def asr_state(self):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.pool import NullPool
+        engine = create_engine(self.config.database_url, hide_parameters=True, poolclass=NullPool)
+        try:
+            with engine.connect() as connection:
+                row = connection.execute(text("SELECT pid, status, error_code, "
+                    "EXTRACT(EPOCH FROM (now()-heartbeat_at)) AS age FROM asr_worker_state WHERE id=1")).mappings().first()
+                if not row:
+                    return {"alive": False, "ready": False}
+            # A heartbeat alone cannot prove process identity or readiness.
+            owned = self.powershell(r"""
+                $current=[int]$env:YM_DEV_PID; $rootSeen=$false; $moduleSeen=$false
+                for ($i=0; $i -lt 4 -and $current -gt 0; $i++) {
+                    $proc=Get-CimInstance Win32_Process -Filter "ProcessId=$current" -ErrorAction SilentlyContinue
+                    if (-not $proc) { break }
+                    if ($proc.CommandLine -match 'asr_worker\.py') { $moduleSeen=$true }
+                    if ($proc.CommandLine.IndexOf($env:YM_DEV_ROOT,[StringComparison]::OrdinalIgnoreCase) -ge 0) { $rootSeen=$true }
+                    $current=[int]$proc.ParentProcessId
+                }
+                [bool]($rootSeen -and $moduleSeen) | ConvertTo-Json
+            """, pid=row["pid"], root=str(self.config.root))
+            return {"alive": bool(owned), "ready": bool(owned) and row["age"] < 15 and row["status"] in ("ready", "busy"),
+                "status": row["status"], "error": row["error_code"], "pid": row["pid"]}
+        finally:
+            engine.dispose()
+
+    def start_asr(self):
+        home = self.config.asr_home or self.config.root / "asr"
+        if not (home / ".venv/Scripts/python.exe").is_file():
+            raise LaunchError("GigaAM", "Не найдено отдельное ASR-окружение.", "Проверьте ASR_HOME в backend/.env и инструкции ASR. Автоустановка не выполняется.")
+        self.spawn("asr-worker", [str(self.config.python), str(self.config.root / "backend/scripts/asr_worker.py")])
+
     def backend_ready(self):
         try:
             with httpx.Client(base_url="http://127.0.0.1:8000", timeout=3, trust_env=False) as client:
@@ -205,6 +248,7 @@ class System:
                 return (health.status_code == 200 and health.json().get("status") == "ok"
                     and schema.status_code == 200 and schema.json()["info"]["title"] == "YourMettings"
                     and "/api/v1/transcripts/process" in schema.json()["paths"]
+                    and "/api/v1/audio-sessions" in schema.json()["paths"]
                     and folders.status_code == 200 and isinstance(folders.json().get("items"), list))
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             return False
@@ -238,7 +282,7 @@ class Launcher:
     def run(self):
         self.system.check_lan()
         self.backend_port()  # Fail on a collision before starting other components.
-        print("[1/3] PostgreSQL: проверка подключения и схемы...", flush=True)
+        print("[1/4] PostgreSQL: проверка подключения и схемы...", flush=True)
         issue = self.system.database()
         if issue:
             from sqlalchemy.engine import make_url
@@ -263,7 +307,7 @@ class Launcher:
                 raise LaunchError("PostgreSQL", issue.reason, issue.action)
         print("PostgreSQL готов: подключение и схема проверены без записи данных.", flush=True)
 
-        print("[2/3] Ollama: проверка API и установленной модели...", flush=True)
+        print("[2/4] Ollama: проверка API и установленной модели...", flush=True)
         models = self.system.tags()
         if models is None:
             port = urlsplit(self.config.ollama_url).port or 11434
@@ -282,7 +326,21 @@ class Launcher:
             self.system.load_model()
         print("Ollama готова; выбранная модель доступна.", flush=True)
 
-        print("[3/3] FastAPI: проверка процесса, /health и чтения БД...", flush=True)
+        if self.config.asr_enabled:
+            print("[3/4] GigaAM: постоянный worker, CUDA, модель и VAD...", flush=True)
+            state = self.system.asr_state()
+            if not state["ready"]:
+                if self.check_only:
+                    raise LaunchError("GigaAM", "ASR-worker не готов.", "Запустите start-dev.ps1 без -CheckOnly и проверьте лог ASR.")
+                if not state["alive"]:
+                    self.system.start_asr()
+                if not self.system.wait(lambda: self.system.asr_state()["ready"], self.config.asr_timeout + 10):
+                    state = self.system.asr_state()
+                    raise LaunchError("GigaAM", "Worker не готов: " + str(state.get("error") or state.get("status") or "нет heartbeat"),
+                        "Проверьте ASR_HOME, локальные модели/VAD, CUDA и свободную VRAM. Посмотрите лог ASR; чужие процессы не завершаются.")
+            print("GigaAM готов: модель и VAD загружены, очередь доступна.", flush=True)
+
+        print("[4/4] FastAPI: проверка процесса, /health и чтения БД...", flush=True)
         listeners = self.backend_port()
         if not listeners:
             if self.check_only:
@@ -296,7 +354,7 @@ class Launcher:
         if not {"127.0.0.1", self.config.lan_host}.issubset(addresses):
             raise LaunchError("Сеть", "Backend не слушает оба настроенных локальных адреса.",
                 "Проверьте способ запуска backend; ожидается один процесс app.run с --lan-host.")
-        print("\nГОТОВО: PostgreSQL, Ollama и backend проверены.", flush=True)
+        print("\nГОТОВО: PostgreSQL, Ollama, ASR (если включён) и backend проверены.", flush=True)
         print("ПК: http://127.0.0.1:8000/docs", flush=True)
         print(f"Телефон (LAN): http://{self.config.lan_host}:8000/api/v1", flush=True)
         print("PID backend: " + ", ".join(str(pid) for pid in sorted({x["pid"] for x in listeners})), flush=True)
@@ -342,7 +400,8 @@ def load_config(args):
         if parsed.scheme not in ("http", "https") or parsed.hostname not in ("127.0.0.1", "localhost", "::1") or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
             raise ValueError("Ollama must use a local API")
         return Config(root, settings.database_url, settings.ollama_base_url.rstrip("/"),
-            settings.ollama_model, args.lan_host, args.postgres_service)
+            settings.ollama_model, args.lan_host, args.postgres_service,
+            settings.asr_enabled, settings.asr_home, settings.asr_startup_timeout_seconds)
     except Exception as exc:
         raise LaunchError("Конфигурация", "Не удалось прочитать корректную локальную конфигурацию приложения.",
             "Проверьте backend/.env, DATABASE_URL, OLLAMA_BASE_URL и OLLAMA_MODEL. Содержимое файла не выводится.") from exc

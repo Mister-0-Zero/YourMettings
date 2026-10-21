@@ -1,4 +1,6 @@
 ﻿#Requires -Version 5.1
+# Starts/checks PostgreSQL, Ollama, persistent GigaAM/VAD worker and FastAPI.
+# ASR resource home and limits are read from backend/.env by dev_launcher.py.
 [CmdletBinding()]
 param(
     [string]$LanHost = '192.168.1.100',

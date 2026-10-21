@@ -17,6 +17,8 @@ class FakeSystem:
         self.service_denied = False
         self.model_failed = False
         self.actions = []
+        self.asr = running
+        self.asr_failed = False
 
     def check_lan(self):
         pass
@@ -56,6 +58,13 @@ class FakeSystem:
         self.actions.append("backend")
         self.backend = True
 
+    def asr_state(self):
+        return {"alive": self.asr, "ready": self.asr and not self.asr_failed, "error": "asr_load_failed" if self.asr_failed else None}
+
+    def start_asr(self):
+        self.actions.append("asr")
+        self.asr = True
+
     def backend_ready(self):
         return self.backend
 
@@ -71,7 +80,7 @@ def config(tmp_path):
 def test_all_stopped_starts_in_order(config):
     system = FakeSystem(running=False)
     Launcher(config, system).run()
-    assert system.actions == [("postgres", "postgresql-x64-18"), "ollama", "load_model", "backend"]
+    assert system.actions == [("postgres", "postgresql-x64-18"), "ollama", "load_model", "asr", "backend"]
 
 
 def test_repeat_start_does_not_duplicate_processes(config):
@@ -80,6 +89,7 @@ def test_repeat_start_does_not_duplicate_processes(config):
     Launcher(config, system).run()
     assert system.actions.count("ollama") == 1
     assert system.actions.count("backend") == 1
+    assert system.actions.count("asr") == 1
     assert system.actions.count(("postgres", "postgresql-x64-18")) == 1
 
 
@@ -218,3 +228,20 @@ def test_changed_env_is_not_silently_ignored(config):
     system.listeners = lambda port: [{**item, "started": "2000-01-01T00:00:00+00:00"} for item in original(port)]
     with pytest.raises(LaunchError, match="изменён после запуска"):
         Launcher(config, system).run()
+
+
+def test_asr_load_failure_is_not_ready_and_does_not_start_duplicate(config):
+    system = FakeSystem()
+    system.asr_failed = True
+    system.backend = False
+    with pytest.raises(LaunchError, match="asr_load_failed"):
+        Launcher(config, system).run()
+    assert "asr" not in system.actions and "backend" not in system.actions
+
+
+def test_check_only_does_not_start_asr(config):
+    system = FakeSystem()
+    system.asr = False
+    with pytest.raises(LaunchError, match="ASR-worker"):
+        Launcher(config, system, check_only=True).run()
+    assert system.actions == []
