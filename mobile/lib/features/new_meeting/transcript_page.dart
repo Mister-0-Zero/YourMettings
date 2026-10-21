@@ -115,23 +115,45 @@ class _TranscriptPageState extends State<TranscriptPage> {
           'Сохранённый черновик будет доступен в «Пространстве». После выхода можно начать новую запись.',
         ),
         actions: [
-          TextButton(
-            onPressed: alreadyDeleted ? null : () => Navigator.pop(context),
-            child: const Text('Продолжить редактирование'),
-          ),
-          FilledButton(
-            onPressed: alreadyDeleted
-                ? null
-                : () => Navigator.pop(context, 'save'),
-            child: const Text('Сохранить черновик и выйти'),
-          ),
-          TextButton.icon(
-            onPressed: () => Navigator.pop(context, 'delete'),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
+          SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextButton(
+                  onPressed: alreadyDeleted
+                      ? null
+                      : () => Navigator.pop(context),
+                  child: const Text(
+                    'Продолжить редактирование',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: alreadyDeleted
+                      ? null
+                      : () => Navigator.pop(context, 'save'),
+                  child: const Text(
+                    'Сохранить черновик и выйти',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => Navigator.pop(context, 'delete'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text(
+                    'Удалить встречу',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
             ),
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('Удалить встречу'),
           ),
         ],
       ),
