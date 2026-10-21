@@ -50,8 +50,8 @@ def peak_ram_mib():
     return None
 
 
-def configure_ffmpeg():
-    shared = ROOT / 'tools' / 'ffmpeg-shared' / 'bin'
+def configure_ffmpeg(root=ROOT):
+    shared = root / 'tools' / 'ffmpeg-shared' / 'bin'
     if shared.is_dir():
         os.environ['PATH'] = str(shared) + os.pathsep + os.environ.get('PATH', '')
         if os.name == 'nt':
@@ -60,7 +60,7 @@ def configure_ffmpeg():
         return 'ffmpeg'
     import imageio_ffmpeg
     source = Path(imageio_ffmpeg.get_ffmpeg_exe())
-    tools = ROOT / 'tools'
+    tools = root / 'tools'
     tools.mkdir(exist_ok=True)
     target = tools / ('ffmpeg.exe' if os.name == 'nt' else 'ffmpeg')
     if not target.exists():

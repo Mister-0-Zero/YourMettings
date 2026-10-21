@@ -2,6 +2,7 @@ import hashlib
 import io
 import uuid
 import wave
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -95,6 +96,18 @@ def test_simultaneous_uploads_do_not_duplicate(client, database):
     assert sorted(r.status_code for r in results) == [200, 201]
     with database() as db:
         assert db.scalar(select(func.count()).select_from(AudioChunk)) == 1
+
+
+def test_only_one_claim_for_a_chunk(client, database):
+    sid, _ = session(client)
+    upload(client, sid)
+    generation = worker(database)
+    def claim():
+        with database.begin() as db:
+            return claim_chunk(db, generation)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = list(pool.map(lambda _: claim(), range(2)))
+    assert sum(job is not None for job in jobs) == 1
 
 
 def test_invalid_audio_limits_and_checksum(client, monkeypatch):
@@ -255,3 +268,24 @@ def test_boundary_review_is_required_and_llm_error_uses_existing_retry(client, d
     app.dependency_overrides[get_generator] = lambda: FakeGenerator()
     assert client.post(f"/api/v1/transcripts/{tid}/process", json=body).status_code == 202
     assert client.get(f"/api/v1/transcripts/{tid}/processing").json()["status"] == "ready"
+
+
+def test_concurrent_confirm_is_single_generation(client, database):
+    sid, body = session(client)
+    upload(client, sid)
+    client.post(f"{BASE}/{sid}/complete", json={"expected_chunk_count": 1})
+    do_job(database, worker(database))
+    state = client.get(f"{BASE}/{sid}").json()
+    started, release = threading.Event(), threading.Event()
+    fake = FakeGenerator(started=started, release=release)
+    app.dependency_overrides[get_generator] = lambda: fake
+    confirmation = {**body, "confirm": True, "reviewed_text_sha256": state["transcript_sha256"]}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(client.post, f"{BASE}/{sid}/confirm", json=confirmation)
+        assert started.wait(5)
+        try:
+            assert client.post(f"{BASE}/{sid}/confirm", json=confirmation).status_code == 200
+        finally:
+            release.set()
+        assert first.result().status_code == 202
+    assert fake.calls == 1

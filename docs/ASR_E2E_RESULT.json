@@ -1,0 +1,28 @@
+{
+  "audio_seconds": 600.064,
+  "asr_elapsed_seconds": 23.781,
+  "transcript_characters": 6778,
+  "summary_characters": 1262,
+  "total_seconds": 37.875,
+  "chunks": 2,
+  "container": "M4A/AAC",
+  "asr_model": "v3_e2e_rnnt",
+  "llm_model": "qwen3.8:27b",
+  "worker_generation_unchanged": true,
+  "qwen_attempts": 1,
+  "existing_records_unchanged": true,
+  "measured_on": "2026-10-21",
+  "source_kind": "audiobook",
+  "phone_tested": false,
+  "asr_jobs": [
+    {"audio_seconds": 300.032, "seconds": 11.797, "peak_allocated_mib": 861.1},
+    {"audio_seconds": 300.032, "seconds": 10.906, "peak_allocated_mib": 862.9}
+  ],
+  "coordinator_crash_recovery": {
+    "passed": true,
+    "audio_seconds": 300.032,
+    "attempts": 2,
+    "payload_recovered_from_postgresql": true,
+    "qwen_started_before_confirmation": false
+  }
+}
