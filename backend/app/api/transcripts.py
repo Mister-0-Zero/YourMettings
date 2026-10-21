@@ -12,6 +12,7 @@ from app.api.dependencies import owned_transcript, validate_folders
 from app.api.errors import fail
 from app.core.config import settings
 from app.db.models import Transcript, Summary
+from app.db.audio_models import AudioSession
 from app.db.session import TEST_USER_ID, get_db
 from app.schemas import TranscriptInput, TranscriptOut, ProcessInput, ProcessingOut, CreateProcessInput
 from app.integrations.ollama import OllamaGenerator, get_generator
@@ -145,6 +146,9 @@ def process_transcript(id: UUID, body: ProcessInput, response: Response,
     tasks: BackgroundTasks, db: Session = Depends(get_db), generator=Depends(get_generator)):
     lock_user_data(db)
     item = owned_transcript(db, id, lock=True)
+    audio = db.scalar(select(AudioSession).where(AudioSession.transcript_id == id))
+    if audio is not None and audio.status != "completed":
+        fail(409, "audio_review_required", "Подтвердите проверенный текст через аудиосессию перед Qwen.")
     if item.processing_status == "summarizing":
         return processing_response(db, item)
     existing = db.scalar(select(Summary.id).where(Summary.transcript_id == id, Summary.user_id == TEST_USER_ID))

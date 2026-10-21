@@ -9,6 +9,8 @@ from app.db.session import TEST_USER_ID
 from app.integrations.ollama import LLMError, SummaryGenerator
 from app.schemas import ProcessingError, ProcessingOut
 from app.services.deletion import lock_user_data
+from app.services.gpu import gpu_slot
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 ERROR_MESSAGES = {
@@ -40,7 +42,8 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
                 return
             source = item.text
             options = dict(item.processing_options)
-        content = generator.generate(source, options=options)
+        with gpu_slot(factory, enabled=settings.asr_gpu_serial):
+            content = generator.generate(source, options=options)
         if not isinstance(content, str) or not content.strip():
             raise LLMError("llm_invalid_response")
         with factory.begin() as db:

@@ -29,6 +29,8 @@ def has_external_references(db, transcript_id):
           AND r.attname='id'
     """))
     for schema, name, field in references:
+        if name == "audio_sessions":
+            continue  # Handled explicitly below, including unconfirmed review.
         referenced = table(name, column(field), schema=schema)
         if db.scalar(select(referenced.c[field]).where(referenced.c[field] == transcript_id).limit(1)) is not None:
             return True
@@ -43,11 +45,18 @@ def cleanup_transcript(db, transcript):
     transcript.error_code = None
     if db.scalar(select(Summary.id).where(Summary.transcript_id == transcript.id).limit(1)) is not None:
         return False
+    from app.db.audio_models import AudioSession
+    audio = db.scalar(select(AudioSession).where(AudioSession.transcript_id == transcript.id))
+    if audio is not None and audio.status != "completed":
+        return False
     if has_external_references(db, transcript.id):
         # Keep immutable history and a retriable state for external consumers.
         transcript.processing_status = "not_started"
         transcript.error_code = None
         return False
+    if audio is not None:
+        db.delete(audio)  # Completed audio metadata must not pin deleted meetings.
+        db.flush()
     db.delete(transcript)
     db.flush()
     return True
