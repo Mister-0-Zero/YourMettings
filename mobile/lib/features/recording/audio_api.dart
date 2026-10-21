@@ -24,6 +24,12 @@ class AudioApi {
               throw TimeoutException('Audio HTTP deadline');
             },
           );
+      if (request.method == 'DELETE') {
+        if (response.statusCode == 204 && response.bodyBytes.isEmpty) return {};
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          throw const FormatException('Deletion requires confirmed empty 204');
+        }
+      }
       Json value = {};
       try {
         final decoded = jsonDecode(utf8.decode(response.bodyBytes));
@@ -39,7 +45,8 @@ class AudioApi {
         final error = value['error'] as Json?;
         throw ApiException(
           error?['code'] as String? ?? 'audio_error',
-          'Не удалось отправить запись. Данные сохранены на устройстве.',
+          error?['message'] as String? ??
+              'Не удалось выполнить запрос. Данные сохранены на устройстве.',
           statusCode: response.statusCode,
         );
       }
@@ -78,6 +85,10 @@ class AudioApi {
       request.body = jsonEncode(body);
     }
     return _send(request, abort);
+  }
+
+  Future<void> deleteSession(String id) async {
+    await json('DELETE', '/$id?confirm=true');
   }
 
   Future<Json> upload(String id, File file, Json chunk, String hash) async {

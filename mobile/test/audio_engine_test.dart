@@ -231,6 +231,63 @@ void main() {
       await engine.dispose();
     },
   );
+  for (final scenario in [
+    'success',
+    'wrong owner',
+    'unacknowledged',
+    'remaining WAV',
+    'disk failure',
+  ]) {
+    test('review release protects journal: $scenario', () async {
+      final journal = FaultJournal(dir)
+        ..data = {
+          'version': 1,
+          'id': 'session',
+          'phase': 'review',
+          'closed_ms': 1000,
+          'limits': limits,
+          'chunks': <Map<String, dynamic>>[
+            {
+              'sequence': 0,
+              'duration_ms': 1000,
+              'acked': scenario != 'unacknowledged',
+            },
+          ],
+        };
+      journal.saveSync();
+      if (scenario == 'remaining WAV') {
+        journal.chunkFile(1).writeAsBytesSync([1, 2, 3]);
+      }
+      final engine = AudioEngine(
+        journal,
+        AudioApi(
+          Uri.parse('http://example/'),
+          client: MockClient(
+            (_) async => throw http.ClientException('offline'),
+          ),
+        ),
+      );
+      await engine.initialize();
+      if (scenario == 'disk failure') journal.fail = true;
+      if (scenario == 'success') {
+        await engine.releaseReview('session');
+        expect(journal.data, {'version': 1, 'phase': 'done'});
+      } else {
+        await expectLater(
+          engine.releaseReview(
+            scenario == 'wrong owner' ? 'different' : 'session',
+          ),
+          throwsA(anything),
+        );
+        expect(journal.data['id'], 'session');
+        expect(journal.chunks.length, 1);
+        if (scenario == 'remaining WAV') {
+          expect(journal.chunkFile(1).readAsBytesSync(), [1, 2, 3]);
+        }
+      }
+      await engine.dispose();
+    });
+  }
   test(
     'continuous microphone, repeated pause/resume, timer follows samples',
     () async {

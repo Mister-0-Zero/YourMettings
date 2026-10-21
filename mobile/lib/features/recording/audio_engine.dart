@@ -406,6 +406,26 @@ class AudioEngine {
     }
   }
 
+  /// Caller has already durably saved a review or confirmed server deletion.
+  /// Never detach a writer or an unacknowledged WAV from its only journal.
+  Future<void> releaseReview(String expectedId) async {
+    await _idle?.future;
+    if (journal.data['id'] != expectedId ||
+        !['review', 'completed'].contains(phase) ||
+        journal.chunks.any((chunk) => chunk['acked'] != true) ||
+        journal.directory.listSync().any((f) => f.path.endsWith('.wav'))) {
+      throw StateError('Review is not safe to detach');
+    }
+    final previous = journal.data;
+    journal.data = {'version': 1, 'phase': 'done'};
+    try {
+      save();
+    } catch (_) {
+      journal.data = previous;
+      rethrow;
+    }
+  }
+
   Future<void> markDone() async {
     await _idle?.future;
     if (!['review', 'completed'].contains(phase) && journal.chunks.isNotEmpty) {

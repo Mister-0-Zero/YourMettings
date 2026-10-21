@@ -32,7 +32,7 @@ class FakeRecorder extends RecorderCoordinator {
   }
 
   @override
-  Future<void> command(String command) async {
+  Future<void> command(String command, {String? sessionId}) async {
     state['phase'] = command == 'pause'
         ? 'paused'
         : command == 'resume'

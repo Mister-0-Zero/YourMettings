@@ -80,12 +80,16 @@ class _AudioTask extends TaskHandler {
     if (data is String) unawaited(_command(data));
     if (data is Map && data['command'] is String) {
       unawaited(
-        _command(data['command'] as String, reply: data['request'] as int?),
+        _command(
+          data['command'] as String,
+          reply: data['request'] as int?,
+          sessionId: data['session_id'] as String?,
+        ),
       );
     }
   }
 
-  Future<void> _command(String command, {int? reply}) async {
+  Future<void> _command(String command, {int? reply, String? sessionId}) async {
     try {
       switch (command) {
         case 'pause':
@@ -102,6 +106,8 @@ class _AudioTask extends TaskHandler {
           await engine!.retryAsr();
         case 'done':
           await engine!.markDone();
+        case 'releaseReview':
+          await engine!.releaseReview(sessionId ?? '');
         case 'snapshot':
           engine!.emit();
       }
@@ -166,6 +172,7 @@ class RecorderCoordinator extends ChangeNotifier {
   int _requestId = 0;
   final Map<int, Completer<bool>> _replies = {};
   bool busy = false;
+  bool handoffPending = false;
   String? error;
   String get phase => state['phase'] as String? ?? 'empty';
   bool get active => !['empty', 'done'].contains(phase);
@@ -230,6 +237,11 @@ class RecorderCoordinator extends ChangeNotifier {
 
   Future<void> start(Json parameters) async {
     if (busy) return;
+    if (handoffPending) {
+      error = 'Завершите сохранение черновика в «Пространстве» перед новой записью.';
+      notifyListeners();
+      return;
+    }
     if (active && !['preparing', 'interrupted'].contains(phase)) {
       error = 'Сначала продолжите сохранённую встречу.';
       notifyListeners();
@@ -314,7 +326,7 @@ class RecorderCoordinator extends ChangeNotifier {
     }
   }
 
-  Future<void> command(String command) async {
+  Future<void> command(String command, {String? sessionId}) async {
     if (busy) return;
     busy = true;
     error = null;
@@ -327,6 +339,7 @@ class RecorderCoordinator extends ChangeNotifier {
         FlutterForegroundTask.sendDataToTask({
           'command': command,
           'request': id,
+          'session_id': ?sessionId,
         });
         try {
           if (!await reply.future.timeout(const Duration(seconds: 15))) {
@@ -351,6 +364,8 @@ class RecorderCoordinator extends ChangeNotifier {
             await _local?.markDone();
           case 'finishRecovered':
             await _local?.finishRecovered();
+          case 'releaseReview':
+            await _local?.releaseReview(sessionId ?? '');
         }
       }
     } catch (_) {
@@ -358,6 +373,17 @@ class RecorderCoordinator extends ChangeNotifier {
     } finally {
       busy = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> releaseReview(String expectedId) async {
+    if (!active) return;
+    if (state['id'] != expectedId) {
+      throw StateError('Another recording owns the journal');
+    }
+    await command('releaseReview', sessionId: expectedId);
+    if (active || error != null) {
+      throw StateError('Review handoff not acknowledged');
     }
   }
 
