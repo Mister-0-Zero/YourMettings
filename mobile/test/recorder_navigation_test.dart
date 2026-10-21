@@ -44,7 +44,7 @@ class FakeRecorder extends RecorderCoordinator {
 
 void main() {
   for (final mode in [ThemeMode.light, ThemeMode.dark]) {
-    testWidgets('recorder setup and safe back/reentry in $mode', (
+    testWidgets('one tap recording and safe back/reentry in $mode', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(1264, 2736);
@@ -74,14 +74,12 @@ void main() {
       );
       await tester.tap(find.text('Записать встречу'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Настроить запись'));
-      await tester.pumpAndSettle();
-      expect(find.text('Выбрать файл .txt'), findsNothing);
-      expect(find.byType(TextFormField), findsOneWidget);
-      await tester.ensureVisible(find.text('Начать запись'));
-      await tester.tap(find.text('Начать запись'));
-      await tester.pumpAndSettle();
-      expect(recorder.started!['title'], 'Audio QA');
+      expect(find.text('Настроить запись'), findsNothing);
+      expect(find.byType(TextFormField), findsNothing);
+      await tester.tap(find.byKey(const Key('record-start-button')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(recorder.started!['title'], startsWith('Совещание '));
+      expect(recorder.started!['folder_ids'], isEmpty);
       expect(recorder.started!.containsKey('text'), false);
       expect(find.text('Идёт запись'), findsOneWidget);
       await tester.tap(find.text('Пауза'));
@@ -93,7 +91,7 @@ void main() {
       await tester.tap(find.text('Открыть запись'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Продолжить'));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(recorder.phase, 'recording');
       await tester.pumpWidget(const SizedBox());
       review.dispose();

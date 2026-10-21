@@ -7,10 +7,10 @@ void main() {
     'starts with new meeting and keeps unsupported actions disabled',
     (tester) async {
       await tester.pumpWidget(const YourMettingsApp());
-      expect(find.text('Сохраните главное'), findsOneWidget);
+      expect(find.text('Сохраните главное'), findsNothing);
+      expect(find.text('Записать встречу'), findsOneWidget);
       expect(find.text('Загрузить транскрипт'), findsOneWidget);
       for (final title in [
-        'Записать встречу',
         'Загрузить аудио',
         'Подключиться к видеоконференции',
       ]) {
@@ -50,7 +50,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Сохраните главное'), findsOneWidget);
+    expect(find.text('Сохраните главное'), findsNothing);
+    expect(find.text('Записать встречу'), findsOneWidget);
   });
 
   testWidgets('transcript entry opens and closes on a narrow phone', (
@@ -67,6 +68,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    expect(find.text('Сохраните главное'), findsOneWidget);
+    expect(find.text('Сохраните главное'), findsNothing);
+    expect(find.text('Записать встречу'), findsOneWidget);
   });
 }

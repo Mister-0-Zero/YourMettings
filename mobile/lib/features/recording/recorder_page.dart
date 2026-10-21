@@ -6,6 +6,7 @@ import '../../models/api_models.dart';
 import '../new_meeting/transcript_page.dart';
 import 'audio_review_controller.dart';
 import 'recorder_coordinator.dart';
+import 'audio_wave.dart';
 
 class RecorderPage extends StatefulWidget {
   const RecorderPage({super.key, required this.recorder, required this.review});
@@ -69,26 +70,61 @@ class _RecorderPageState extends State<RecorderPage> {
     }
   }
 
-  Future<void> _setup() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => TranscriptPage(
-          controller: widget.review,
-          onRecord: (draft) async {
-            FocusManager.instance.primaryFocus?.unfocus();
-            await widget.recorder.start({
-              'title': draft.title,
-              'folder_ids': draft.folderIds,
-              ...draft.options.toJson(),
-            });
-            if (mounted && widget.recorder.error == null) {
-              Navigator.of(context).pop();
-            }
-          },
+  Future<void> _start() async {
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    final parameters =
+        widget.recorder.phase == 'preparing' &&
+            widget.recorder.state['parameters'] is Json
+        ? widget.recorder.state['parameters'] as Json
+        : <String, dynamic>{
+            'title':
+                'Совещание ${two(now.day)}.${two(now.month)}.${now.year} ${two(now.hour)}:${two(now.minute)}',
+            'folder_ids': <String>[],
+          };
+    await widget.recorder.start(parameters);
+  }
+
+  Widget _microphone(
+    BuildContext context, {
+    required bool recording,
+    required bool paused,
+    VoidCallback? onPressed,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final color = paused
+        ? Theme.of(context).colorScheme.secondaryContainer
+        : recording
+        ? (dark ? Colors.red.shade400 : Colors.red.shade700)
+        : (dark ? Colors.red.shade900 : Colors.red.shade100);
+    return Center(
+      child: Semantics(
+        label: recording
+            ? 'Микрофон включён'
+            : paused
+            ? 'Запись на паузе'
+            : 'Начать запись',
+        button: onPressed != null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 128,
+          height: 128,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          child: IconButton(
+            key: const Key('record-start-button'),
+            tooltip: onPressed == null ? null : 'Начать запись',
+            onPressed: onPressed,
+            icon: Icon(
+              paused ? Icons.pause : Icons.mic,
+              size: 64,
+              color: recording
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
         ),
       ),
     );
-    if (mounted) setState(() {});
   }
 
   @override
@@ -112,27 +148,26 @@ class _RecorderPageState extends State<RecorderPage> {
             ),
             const SizedBox(height: 32),
             if (['empty', 'done', 'preparing'].contains(phase)) ...[
-              const Icon(Icons.mic_none, size: 64),
-              const SizedBox(height: 20),
-              const Text('Выберите название и папку перед началом записи.'),
-              FilledButton(
-                onPressed: recorder.busy ? null : _setup,
-                child: const Text('Настроить запись'),
+              _microphone(
+                context,
+                recording: false,
+                paused: false,
+                onPressed: recorder.busy ? null : _start,
               ),
+              if (recorder.busy) ...[
+                const SizedBox(height: 24),
+                const Center(child: CircularProgressIndicator()),
+              ],
             ] else if ([
               'recording',
               'paused',
               'prepared',
               'stopping',
             ].contains(phase)) ...[
-              Icon(
-                phase == 'recording'
-                    ? Icons.fiber_manual_record
-                    : Icons.pause_circle_outline,
-                size: 48,
-                color: phase == 'recording'
-                    ? Theme.of(context).colorScheme.error
-                    : null,
+              _microphone(
+                context,
+                recording: phase == 'recording',
+                paused: phase == 'paused',
               ),
               const SizedBox(height: 16),
               Center(
@@ -151,17 +186,9 @@ class _RecorderPageState extends State<RecorderPage> {
                 ),
               ),
               const SizedBox(height: 12),
-              Center(
-                child: SizedBox(
-                  width: 180,
-                  child: LinearProgressIndicator(
-                    value: (recorder.state['level'] as num? ?? 0)
-                        .toDouble()
-                        .clamp(0, 1),
-                    semanticsLabel: 'Уровень микрофона',
-                    minHeight: 8,
-                  ),
-                ),
+              AudioWave(
+                level: (recorder.state['level'] as num? ?? 0).toDouble(),
+                active: phase == 'recording',
               ),
               const SizedBox(height: 32),
               if (['recording', 'paused'].contains(phase)) ...[

@@ -195,71 +195,57 @@ class NewMeetingPage extends StatelessWidget {
     builder: (context, _) => ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        Text(
-          'Сохраните главное',
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          controller?.hasOperation == true
-              ? controller?.result != null
-                    ? 'Результат готов. Откройте обработку, чтобы прочитать его.'
-                    : 'Есть незавершённая обработка. Её состояние сохраняется при перезапуске.'
-              : 'Загрузите готовый транскрипт, чтобы получить решения и задачи встречи.',
-          style: Theme.of(context).textTheme.bodyLarge,
-        ),
-        const SizedBox(height: 24),
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(24),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.description_outlined, size: 32),
-                const SizedBox(height: 12),
-                Text(
-                  'Готовый транскрипт',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 8),
-                const Text('Текстовый файл .txt или текст из буфера обмена.'),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  icon: const Icon(Icons.upload_file),
-                  label: Text(
-                    controller?.hasOperation == true
-                        ? 'Открыть обработку'
-                        : 'Загрузить транскрипт',
-                  ),
-                  onPressed: () => Navigator.of(context).push<void>(
-                    MaterialPageRoute(
-                      builder: (_) => controller == null
-                          ? const TranscriptDraftPage()
-                          : TranscriptPage(controller: controller!),
+                const Icon(Icons.mic_none, size: 64),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.mic),
+                    label: Text(
+                      recorder?.active == true
+                          ? ['review', 'completed'].contains(recorder?.phase)
+                                ? 'Продолжить встречу'
+                                : 'Открыть запись'
+                          : 'Записать встречу',
                     ),
+                    onPressed: recorder == null || audioReview == null
+                        ? null
+                        : () => Navigator.of(context).push<void>(
+                            MaterialPageRoute(
+                              builder: (_) => RecorderPage(
+                                recorder: recorder!,
+                                review: audioReview!,
+                              ),
+                            ),
+                          ),
                   ),
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 24),
         Text('Другие способы', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         ListTile(
-          leading: const Icon(Icons.mic_none),
+          leading: const Icon(Icons.description_outlined),
           title: Text(
-            recorder?.active == true ? 'Открыть запись' : 'Записать встречу',
+            controller?.hasOperation == true
+                ? 'Открыть обработку'
+                : 'Загрузить транскрипт',
           ),
-          enabled: recorder != null && audioReview != null,
-          onTap: recorder == null || audioReview == null
-              ? null
-              : () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        RecorderPage(recorder: recorder!, review: audioReview!),
-                  ),
-                ),
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => controller == null
+                  ? const TranscriptDraftPage()
+                  : TranscriptPage(controller: controller!),
+            ),
+          ),
         ),
         const _UnavailableAction(
           icon: Icons.audio_file_outlined,

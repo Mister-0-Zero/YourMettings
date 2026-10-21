@@ -194,6 +194,11 @@ class RecorderCoordinator extends ChangeNotifier {
 
   Future<void> start(Json parameters) async {
     if (busy) return;
+    if (active && !['preparing', 'interrupted'].contains(phase)) {
+      error = 'Сначала продолжите сохранённую встречу.';
+      notifyListeners();
+      return;
+    }
     busy = true;
     error = null;
     notifyListeners();
