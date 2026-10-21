@@ -191,10 +191,7 @@ class NewMeetingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([
-      ?controller,
-      ?recorder,
-    ]),
+    animation: Listenable.merge([?controller, ?recorder]),
     builder: (context, _) => ListView(
       padding: const EdgeInsets.all(20),
       children: [

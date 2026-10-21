@@ -203,6 +203,7 @@ class RecorderCoordinator extends ChangeNotifier {
       }
       final permissionRecorder = AudioRecorder();
       final allowed = await permissionRecorder.hasPermission();
+      debugPrint('Audio: microphone_permission granted=$allowed');
       await permissionRecorder.dispose();
       if (!allowed) {
         error = 'Разрешите доступ к микрофону в настройках приложения.';

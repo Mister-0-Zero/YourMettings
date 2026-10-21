@@ -165,3 +165,9 @@ settings, dismisses the keyboard and hides after reaching that area.
 
 See [the 2026-10-20 validation](../docs/MOBILE_SAVE_FIX_2026-10-20.md) for the
 106 tests, real API and HONOR checks, normalization boundaries and the tested APK.
+
+## Диктофон и GigaAM
+
+Запись, Android microphone foreground service, пауза/продолжение, независимые WAV из непрерывного PCM, локальное восстановление, очередь отправки и явное подтверждение транскрипта реализованы в `lib/features/recording/`.
+
+Архитектура, ограничения и физический iOS-чек-лист: [MOBILE_AUDIO_IMPLEMENTATION.md](../docs/MOBILE_AUDIO_IMPLEMENTATION.md).

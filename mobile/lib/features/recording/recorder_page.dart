@@ -150,6 +150,19 @@ class _RecorderPageState extends State<RecorderPage> {
                       : 'Подождите…',
                 ),
               ),
+              const SizedBox(height: 12),
+              Center(
+                child: SizedBox(
+                  width: 180,
+                  child: LinearProgressIndicator(
+                    value: (recorder.state['level'] as num? ?? 0)
+                        .toDouble()
+                        .clamp(0, 1),
+                    semanticsLabel: 'Уровень микрофона',
+                    minHeight: 8,
+                  ),
+                ),
+              ),
               const SizedBox(height: 32),
               if (['recording', 'paused'].contains(phase)) ...[
                 OutlinedButton.icon(

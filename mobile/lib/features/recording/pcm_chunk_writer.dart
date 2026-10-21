@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../../models/api_models.dart';
@@ -19,6 +20,7 @@ class PcmChunkWriter {
   final AudioJournal journal;
   final int targetSeconds, maxSeconds, maxBytes, maxChunks;
   RandomAccessFile? _file;
+  double level = 0;
   int _bytes = 0, _silence = 0, _syncBytes = 0;
   int? _odd;
   int get sequence => journal.chunks.length;
@@ -96,6 +98,8 @@ class PcmChunkWriter {
         final level = data.getInt16(i, Endian.little).abs();
         if (level > peak) peak = level;
       }
+      level = ((20 * math.log(math.max(peak, 1) / 32768) / math.ln10 + 60) / 60)
+          .clamp(0.0, 1.0);
       _silence = peak < 320 ? _silence + count : 0;
       _file!.writeFromSync(frame);
       _bytes += count;

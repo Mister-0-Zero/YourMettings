@@ -358,4 +358,33 @@ void main() {
       await engine.dispose();
     },
   );
+  test(
+    'accepting result waits for in-flight polling and cannot resurrect session',
+    () async {
+      journal.data['phase'] = 'review';
+      final started = Completer<void>();
+      final release = Completer<void>();
+      final engine = AudioEngine(
+        journal,
+        AudioApi(
+          Uri.parse('http://example/'),
+          client: MockClient((_) async {
+            started.complete();
+            await release.future;
+            return reply({'status': 'completed'});
+          }),
+        ),
+      );
+      final polling = engine.sync(force: true);
+      await started.future;
+      final accepting = engine.markDone();
+      release.complete();
+      await polling;
+      await accepting;
+      expect(engine.phase, 'done');
+      await engine.sync(force: true);
+      expect(engine.phase, 'done');
+      await engine.dispose();
+    },
+  );
 }

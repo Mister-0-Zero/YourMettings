@@ -1,9 +1,19 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:your_mettings/features/recording/audio_journal.dart';
 import 'package:your_mettings/features/recording/pcm_chunk_writer.dart';
+
+class DigestSink implements Sink<Digest> {
+  Digest? digest;
+  @override
+  void add(Digest value) => digest = value;
+  @override
+  void close() {}
+}
 
 void main() {
   late Directory dir;
@@ -72,4 +82,43 @@ void main() {
     expect(w.add(Uint8List(64000)), false);
     expect(journal.chunks.length, 1);
   });
+  test(
+    '11 minutes at negotiated 5 minute boundaries retain every sample',
+    () async {
+      final writer = PcmChunkWriter(
+        journal,
+        targetSeconds: 300,
+        maxSeconds: 360,
+        maxBytes: 33554432,
+        maxChunks: 240,
+      );
+      final expected = DigestSink();
+      final digest = sha256.startChunkedConversion(expected);
+      for (var frame = 0; frame < 6600; frame++) {
+        final bytes = Uint8List(3200);
+        if (frame % 3000 < 2996) {
+          for (var j = 0; j < bytes.length; j++) {
+            bytes[j] = (frame + j * 37) % 256;
+          }
+        }
+        digest.add(bytes);
+        expect(writer.add(bytes), true);
+      }
+      writer.closeChunk();
+      digest.close();
+      expect(journal.chunks.map((c) => c['duration_ms']), [
+        300000,
+        300000,
+        60000,
+      ]);
+      Stream<List<int>> recorded() async* {
+        for (final chunk in journal.chunks) {
+          yield* journal.chunkFile(chunk['sequence'] as int).openRead(44);
+        }
+      }
+
+      expect(await sha256.bind(recorded()).first, expected.digest);
+      expect(journal.data['closed_ms'], 660000);
+    },
+  );
 }

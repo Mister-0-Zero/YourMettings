@@ -10,6 +10,14 @@ class AudioJournal {
   Json data = {};
   File get manifest => File('${directory.path}/session.json');
   Future<void> load() async {
+    if (!await manifest.exists() && await directory.exists()) {
+      final audio = await directory.list().any(
+        (file) => file.path.endsWith('.wav'),
+      );
+      if (audio) {
+        throw const FormatException('Audio manifest missing; files preserved');
+      }
+    }
     if (await manifest.exists()) {
       data = jsonDecode(await manifest.readAsString()) as Json;
       if (data['version'] != 1) {

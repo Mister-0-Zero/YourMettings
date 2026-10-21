@@ -68,6 +68,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
   );
   String? _inputError;
   bool _importing = false;
+  bool _recordStarting = false;
   void _save() {
     widget.controller.saveDraft(
       Draft(
@@ -180,7 +181,12 @@ class _TranscriptPageState extends State<TranscriptPage> {
     );
     if (widget.controller.storageError == null) {
       if (widget.onRecord != null) {
-        await widget.onRecord!(widget.controller.draft);
+        setState(() => _recordStarting = true);
+        try {
+          await widget.onRecord!(widget.controller.draft);
+        } finally {
+          if (mounted) setState(() => _recordStarting = false);
+        }
       } else {
         await widget.controller.submit();
       }
@@ -249,6 +255,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _title,
+                  readOnly: controller.working,
                   onChanged: (_) => _save(),
                   maxLength: 200,
                   decoration: const InputDecoration(
@@ -261,7 +268,9 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 const SizedBox(height: 12),
                 if (widget.onRecord == null && !widget.audioReview)
                   OutlinedButton.icon(
-                    onPressed: _importing ? null : _import,
+                    onPressed: _importing || controller.working
+                        ? null
+                        : _import,
                     icon: const Icon(Icons.upload_file),
                     label: const Text('Выбрать файл .txt'),
                   ),
@@ -269,6 +278,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 if (widget.onRecord == null)
                   TextFormField(
                     controller: _text,
+                    readOnly: controller.working,
                     onChanged: (_) => _save(),
                     minLines: 8,
                     maxLines: 18,
@@ -285,7 +295,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   key: _settingsAnchor,
-                  onPressed: _folders,
+                  onPressed: controller.working ? null : _folders,
                   icon: const Icon(Icons.folder_outlined),
                   label: const Text('Выбрать или создать папки'),
                 ),
@@ -329,16 +339,18 @@ class _TranscriptPageState extends State<TranscriptPage> {
                             ),
                           )
                           .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(
-                            () => _options = _options.copyWith(
-                              detailLevel: value,
-                            ),
-                          );
-                          _save();
-                        }
-                      },
+                      onChanged: controller.working
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setState(
+                                  () => _options = _options.copyWith(
+                                    detailLevel: value,
+                                  ),
+                                );
+                                _save();
+                              }
+                            },
                     ),
                     const SizedBox(height: 16),
                     Align(
@@ -358,20 +370,22 @@ class _TranscriptPageState extends State<TranscriptPage> {
                           FilterChip(
                             label: Text(entry.value),
                             selected: _options.focusAreas.contains(entry.key),
-                            onSelected: (selected) {
-                              final areas = {..._options.focusAreas};
-                              if (selected) {
-                                areas.add(entry.key);
-                              } else {
-                                areas.remove(entry.key);
-                              }
-                              setState(
-                                () => _options = _options.copyWith(
-                                  focusAreas: areas.toList(),
-                                ),
-                              );
-                              _save();
-                            },
+                            onSelected: controller.working
+                                ? null
+                                : (selected) {
+                                    final areas = {..._options.focusAreas};
+                                    if (selected) {
+                                      areas.add(entry.key);
+                                    } else {
+                                      areas.remove(entry.key);
+                                    }
+                                    setState(
+                                      () => _options = _options.copyWith(
+                                        focusAreas: areas.toList(),
+                                      ),
+                                    );
+                                    _save();
+                                  },
                           ),
                       ],
                     ),
@@ -383,6 +397,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _instructions,
+                      readOnly: controller.working,
                       minLines: 3,
                       maxLines: 6,
                       maxLength: 2000,
@@ -422,7 +437,9 @@ class _TranscriptPageState extends State<TranscriptPage> {
                   ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: controller.working ? null : _submit,
+                  onPressed: controller.working || _recordStarting
+                      ? null
+                      : _submit,
                   icon: const Icon(Icons.auto_awesome_outlined),
                   label: Text(
                     widget.onRecord != null

@@ -40,6 +40,7 @@ class AudioEngine {
   void log(String event) => debugPrint('Audio: $event');
   Json get snapshot => {
     ...journal.data,
+    'level': phase == 'recording' ? writer?.level ?? 0.0 : 0.0,
     'elapsed_ms': writer?.elapsedMs ?? journal.data['closed_ms'] ?? 0,
   };
   void emit() {
@@ -281,6 +282,7 @@ class AudioEngine {
 
   Future<void> sync({bool force = false}) async {
     if (_disposed ||
+        ['completed', 'done'].contains(phase) ||
         _syncing ||
         journal.data['id'] == null ||
         (!force &&
@@ -342,6 +344,7 @@ class AudioEngine {
       if (['transcribing', 'review', 'completed', 'failed'].contains(phase)) {
         final session = await api.json('GET', '/$id');
         if (_disposed) return;
+        final previousPhase = phase;
         journal.data['session'] = session;
         journal.data['phase'] = switch (session['status']) {
           'ready_for_review' => 'review',
@@ -349,8 +352,10 @@ class AudioEngine {
           'failed' => 'failed',
           _ => 'transcribing',
         };
+        if (previousPhase != phase) log('asr_state $phase');
         save();
       }
+      if (_failures > 0) log('network_restored');
       _failures = 0;
       journal.data.remove('network_error');
       journal.data.remove('upload_error');
@@ -384,6 +389,7 @@ class AudioEngine {
   }
 
   Future<void> markDone() async {
+    await _idle?.future;
     if (!['review', 'completed'].contains(phase) && journal.chunks.isNotEmpty) {
       return;
     }

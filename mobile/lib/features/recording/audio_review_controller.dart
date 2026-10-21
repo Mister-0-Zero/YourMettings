@@ -59,6 +59,12 @@ class AudioReviewController extends MeetingController {
   }
 
   Future<void> acceptAudio(ProcessingStatus accepted) async {
+    if (recovery.operation?.id == accepted.transcriptId) {
+      status = accepted;
+      notifyListeners();
+      await check();
+      return;
+    }
     recovery = RecoveryState(
       operation: AcceptedOperation(
         accepted.transcriptId,
@@ -133,6 +139,11 @@ class AudioReviewController extends MeetingController {
   Future<void> finish() async {
     if (working) return;
     await recorder.command('done');
+    if (recorder.phase != 'done') {
+      error = 'Не удалось завершить встречу. Повторите действие.';
+      notifyListeners();
+      return;
+    }
     await super.finish();
   }
 }
