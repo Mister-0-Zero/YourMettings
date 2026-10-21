@@ -168,3 +168,6 @@ Only debug Android was built. iOS platform files exist but no iOS build/run was
 performed; release signing/distribution and production backend are not validated.
 
 Проверка диктофона/GigaAM 21.10.2026: [MOBILE_AUDIO_VALIDATION_2026-10-21.md](MOBILE_AUDIO_VALIDATION_2026-10-21.md). Реальная запись HONOR — 30:26,5; транскрипт оставлен для явной проверки пользователем. Физический Qwen-этап и iOS не объявляются проверенными.
+
+
+Исправления интерфейса 21–22.10.2026: [MOBILE_UI_VALIDATION_2026-10-22.md](MOBILE_UI_VALIDATION_2026-10-22.md). 130 Flutter-тестов; на HONOR проверены записи 26,2 с (с Qwen) и 19,4 с (новая волна, оставлен черновик), редактор над русской клавиатурой и возврат к транскрипту. iOS не проверен.
