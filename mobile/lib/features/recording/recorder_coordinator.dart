@@ -153,6 +153,9 @@ class _AudioTask extends TaskHandler {
 /// iOS uses the actual record/AVAudioSession engine, not periodic background fetch.
 class RecorderCoordinator extends ChangeNotifier {
   RecorderCoordinator();
+  @visibleForTesting
+  bool get usesAndroidService => Platform.isAndroid;
+  Completer<void>? _firstSnapshot;
   Json state = {};
   final meter = ValueNotifier<List<AudioPeak>>([]);
   bool _meterVisible = false;
@@ -161,7 +164,7 @@ class RecorderCoordinator extends ChangeNotifier {
     _meterVisible = visible;
     if (_local != null) {
       _local!.setMeterEnabled(visible);
-    } else if (Platform.isAndroid) {
+    } else if (usesAndroidService) {
       FlutterForegroundTask.sendDataToTask({'meter_enabled': visible});
     }
     if (!visible) meter.value = [];
@@ -177,12 +180,26 @@ class RecorderCoordinator extends ChangeNotifier {
   String get phase => state['phase'] as String? ?? 'empty';
   bool get active => !['empty', 'done'].contains(phase);
   Future<void> initialize() async {
-    if (Platform.isAndroid) {
+    _poll?.cancel();
+    if (usesAndroidService) {
       FlutterForegroundTask.initCommunicationPort();
       FlutterForegroundTask.addTaskDataCallback(_receive);
       if (await FlutterForegroundTask.isRunningService) {
         // Do not recover/close a live file owned by another engine.
+        final ready = _firstSnapshot = Completer<void>();
         FlutterForegroundTask.sendDataToTask('snapshot');
+        try {
+          await ready.future.timeout(const Duration(seconds: 15));
+        } on TimeoutException {
+          // The service may have stopped while its snapshot was in transit.
+          // Never interpret an unknown owner as an empty/done journal.
+          if (await FlutterForegroundTask.isRunningService) {
+            throw StateError('Recorder state has not been confirmed');
+          }
+          await _attachLocal();
+        } finally {
+          _firstSnapshot = null;
+        }
       } else {
         await _attachLocal();
       }
@@ -191,7 +208,7 @@ class RecorderCoordinator extends ChangeNotifier {
     }
     _poll = Timer.periodic(const Duration(seconds: 2), (_) async {
       if (!busy &&
-          Platform.isAndroid &&
+          usesAndroidService &&
           _local == null &&
           !await FlutterForegroundTask.isRunningService) {
         await _attachLocal();
@@ -215,6 +232,8 @@ class RecorderCoordinator extends ChangeNotifier {
     }
     if (value is Map) {
       state = Map<String, dynamic>.from(value);
+      final ready = _firstSnapshot;
+      if (ready != null && !ready.isCompleted) ready.complete();
       notifyListeners();
     }
   }
@@ -229,7 +248,7 @@ class RecorderCoordinator extends ChangeNotifier {
       meterChanged: (peaks) {
         if (_meterVisible) meter.value = peaks;
       },
-      allowCapture: !Platform.isAndroid,
+      allowCapture: !usesAndroidService,
     );
     await _local!.initialize();
     _local!.setMeterEnabled(_meterVisible);
@@ -251,7 +270,7 @@ class RecorderCoordinator extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      if (Platform.isAndroid && await FlutterForegroundTask.isRunningService) {
+      if (usesAndroidService && await FlutterForegroundTask.isRunningService) {
         throw StateError('Recording already running');
       }
       final permissionRecorder = AudioRecorder();
@@ -262,7 +281,7 @@ class RecorderCoordinator extends ChangeNotifier {
         error = 'Разрешите доступ к микрофону в настройках приложения.';
         return;
       }
-      if (Platform.isAndroid) {
+      if (usesAndroidService) {
         final permission =
             await FlutterForegroundTask.checkNotificationPermission();
         if (permission != NotificationPermission.granted) {
@@ -284,7 +303,7 @@ class RecorderCoordinator extends ChangeNotifier {
         api.close();
       }
       _receive(journal.data);
-      if (Platform.isAndroid) {
+      if (usesAndroidService) {
         FlutterForegroundTask.init(
           androidNotificationOptions: AndroidNotificationOptions(
             channelId: 'meeting_recording',
@@ -332,7 +351,7 @@ class RecorderCoordinator extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      if (Platform.isAndroid && _local == null) {
+      if (usesAndroidService && _local == null) {
         final id = ++_requestId;
         final reply = Completer<bool>();
         _replies[id] = reply;
@@ -377,6 +396,9 @@ class RecorderCoordinator extends ChangeNotifier {
   }
 
   Future<void> releaseReview(String expectedId) async {
+    if (state.isEmpty) {
+      throw StateError('Recorder state has not been confirmed');
+    }
     if (!active) return;
     if (state['id'] != expectedId) {
       throw StateError('Another recording owns the journal');
@@ -388,7 +410,7 @@ class RecorderCoordinator extends ChangeNotifier {
   }
 
   Future<void> foreground() async {
-    if (Platform.isAndroid && _local == null) {
+    if (usesAndroidService && _local == null) {
       FlutterForegroundTask.sendDataToTask('snapshot');
     } else {
       await _local?.sync(force: true);
@@ -398,7 +420,7 @@ class RecorderCoordinator extends ChangeNotifier {
   @override
   void dispose() {
     _poll?.cancel();
-    if (Platform.isAndroid) {
+    if (usesAndroidService) {
       FlutterForegroundTask.removeTaskDataCallback(_receive);
     }
     setMeterVisible(false);
