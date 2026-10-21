@@ -8,7 +8,8 @@ from app.schemas import Input, ProcessInput
 
 
 class AudioSessionInput(ProcessInput):
-    pass
+    # Recording can start before placement; confirmation still uses ProcessInput.
+    folder_ids: list[UUID] = Field(default_factory=list, max_length=100)
 
 
 class AudioComplete(Input):
@@ -58,7 +59,7 @@ class AudioSessionOut(BaseModel):
     transcript_id: UUID | None
     transcript_sha256: str | None
     processing: dict | None
-    parameters: ProcessInput
+    parameters: AudioSessionInput
     error_code: str | None
     boundary_warnings: list[dict]
     chunks: list[AudioChunkOut]
