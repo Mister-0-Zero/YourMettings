@@ -166,3 +166,5 @@ and hierarchy files were removed. The test transcript remains according to API.
 
 Only debug Android was built. iOS platform files exist but no iOS build/run was
 performed; release signing/distribution and production backend are not validated.
+
+Проверка диктофона/GigaAM 21.10.2026: [MOBILE_AUDIO_VALIDATION_2026-10-21.md](MOBILE_AUDIO_VALIDATION_2026-10-21.md). Реальная запись HONOR — 30:26,5; транскрипт оставлен для явной проверки пользователем. Физический Qwen-этап и iOS не объявляются проверенными.

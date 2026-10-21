@@ -393,9 +393,7 @@ class AudioEngine {
     if (!['review', 'completed'].contains(phase) && journal.chunks.isNotEmpty) {
       return;
     }
-    journal.data['phase'] = 'done';
-    journal.data.remove('session');
-    journal.data.remove('parameters');
+    journal.data = {'version': 1, 'phase': 'done'};
     save();
   }
 
