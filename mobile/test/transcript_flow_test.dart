@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' as q;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -39,6 +40,18 @@ void main() {
                 'error': null,
               }),
               202,
+            );
+          }
+          if (request.url.path.endsWith('/transcripts/t1')) {
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'id': 't1',
+                  'text': 'Тестовый ввод',
+                  'is_locked': true,
+                }),
+              ),
+              200,
             );
           }
           return http.Response.bytes(
@@ -84,9 +97,24 @@ void main() {
       expect(find.text('Решения'), findsOneWidget);
       expect(store.state.draft.text, isEmpty);
       expect(store.state.operation!.id, 't1');
-      await tester.ensureVisible(find.text('Принять'));
+      await tester.tap(find.text('Редактировать'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Принять'));
+      expect(find.byType(q.QuillEditor), findsOneWidget);
+      await tester.tap(find.byTooltip('Сохранить изменения'));
+      await tester.pumpAndSettle();
+      expect(find.byType(q.QuillEditor), findsNothing);
+      expect(find.text('Решения'), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(find.text('Тестовый ввод'), findsOneWidget);
+      expect(find.text('Открыть summary'), findsOneWidget);
+      expect(posts, 1);
+      await tester.tap(find.text('Открыть summary'));
+      await tester.pumpAndSettle();
+      expect(find.text('Решения'), findsOneWidget);
+      await tester.ensureVisible(find.text('Готово'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Готово'));
       await tester.pumpAndSettle();
       expect(store.state.operation, isNull);
       expect(controller.draft.text, isEmpty);

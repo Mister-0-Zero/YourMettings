@@ -35,6 +35,8 @@ class _TranscriptPageState extends State<TranscriptPage> {
   final _settingsAnchor = GlobalKey();
   final _pageScroll = ScrollController();
   bool _settingsReached = false;
+  bool _operationOpen = false;
+  bool _cancelling = false;
   late final _text = TextEditingController(text: widget.controller.draft.text);
   late final _title = TextEditingController(
     text: widget.controller.draft.title,
@@ -46,9 +48,28 @@ class _TranscriptPageState extends State<TranscriptPage> {
     super.initState();
     widget.controller.addListener(_operationChanged);
     _pageScroll.addListener(_updateJumpVisibility);
+    if (_hadOperation) _scheduleOperation();
+  }
+
+  void _scheduleOperation() {
+    if (_operationOpen) return;
+    _operationOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || !widget.controller.hasOperation) {
+        _operationOpen = false;
+        return;
+      }
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => GeneratedSummaryPage(controller: widget.controller),
+        ),
+      );
+      _operationOpen = false;
+    });
   }
 
   void _operationChanged() {
+    if (!_hadOperation && widget.controller.hasOperation) _scheduleOperation();
     if (_hadOperation && !widget.controller.hasOperation) {
       _text.text = widget.controller.draft.text;
       _title.text = widget.controller.draft.title;
@@ -69,15 +90,46 @@ class _TranscriptPageState extends State<TranscriptPage> {
   String? _inputError;
   bool _importing = false;
   bool _recordStarting = false;
-  void _save() {
-    widget.controller.saveDraft(
-      Draft(
-        text: _text.text,
-        title: _title.text,
-        folderIds: [..._folderIds],
-        options: _options,
+  Future<void> _save() => widget.controller.saveDraft(
+    Draft(
+      text: _text.text,
+      title: _title.text,
+      folderIds: [..._folderIds],
+      options: _options,
+    ),
+  );
+
+  Future<void> _cancelCreation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Отменить создание встречи?'),
+        content: const Text(
+          'Текст останется в черновике на этом устройстве. Запись и аудиосессия сохранятся. '
+          'Позже можно продолжить эту встречу; обработка Qwen не запустится.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Продолжить редактирование'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Сохранить черновик и выйти'),
+          ),
+        ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+    setState(() => _cancelling = true);
+    FocusManager.instance.primaryFocus?.unfocus();
+    await WidgetsBinding.instance.endOfFrame;
+    await _save();
+    if (!mounted) return;
+    setState(() => _cancelling = false);
+    if (widget.controller.storageError == null) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
   }
 
   Future<void> _import() async {
@@ -233,7 +285,11 @@ class _TranscriptPageState extends State<TranscriptPage> {
       builder: (context, _) {
         final controller = widget.controller;
         if (controller.hasOperation) {
-          return ProcessingPanel(controller: controller);
+          return _AcceptedTranscriptPanel(
+            key: ValueKey(controller.recovery.operation?.id ?? 'pending'),
+            controller: controller,
+            onOpen: _scheduleOperation,
+          );
         }
         final folders = flattenFolders(controller.folders);
         return Form(
@@ -255,7 +311,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _title,
-                  readOnly: controller.working,
+                  readOnly: controller.working || _cancelling,
                   onChanged: (_) => _save(),
                   maxLength: 200,
                   decoration: const InputDecoration(
@@ -278,7 +334,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                 if (widget.onRecord == null)
                   TextFormField(
                     controller: _text,
-                    readOnly: controller.working,
+                    readOnly: controller.working || _cancelling,
                     onChanged: (_) => _save(),
                     minLines: 8,
                     maxLines: 18,
@@ -397,7 +453,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _instructions,
-                      readOnly: controller.working,
+                      readOnly: controller.working || _cancelling,
                       minLines: 3,
                       maxLines: 6,
                       maxLength: 2000,
@@ -436,8 +492,16 @@ class _TranscriptPageState extends State<TranscriptPage> {
                     ),
                   ),
                 const SizedBox(height: 16),
+                if (widget.audioReview)
+                  TextButton(
+                    onPressed: controller.working || _cancelling
+                        ? null
+                        : _cancelCreation,
+                    child: const Text('Отменить создание встречи'),
+                  ),
                 FilledButton.icon(
-                  onPressed: controller.working || _recordStarting
+                  onPressed:
+                      controller.working || _recordStarting || _cancelling
                       ? null
                       : _submit,
                   icon: const Icon(Icons.auto_awesome_outlined),
@@ -456,6 +520,91 @@ class _TranscriptPageState extends State<TranscriptPage> {
       },
     ),
   );
+}
+
+/// A separate route keeps the source transcript in the navigation stack.
+class GeneratedSummaryPage extends StatelessWidget {
+  const GeneratedSummaryPage({super.key, required this.controller});
+  final MeetingController controller;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Результат встречи')),
+    body: AnimatedBuilder(
+      animation: controller,
+      builder: (_, _) => ProcessingPanel(controller: controller),
+    ),
+  );
+}
+
+class _AcceptedTranscriptPanel extends StatefulWidget {
+  const _AcceptedTranscriptPanel({
+    super.key,
+    required this.controller,
+    required this.onOpen,
+  });
+  final MeetingController controller;
+  final VoidCallback onOpen;
+  @override
+  State<_AcceptedTranscriptPanel> createState() =>
+      _AcceptedTranscriptPanelState();
+}
+
+class _AcceptedTranscriptPanelState extends State<_AcceptedTranscriptPanel> {
+  late Future<Transcript>? _source = _load();
+  Future<Transcript>? _load() {
+    final id = widget.controller.recovery.operation?.id;
+    return id == null ? null : widget.controller.api.transcript(id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    return SafeArea(
+      top: false,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: FilledButton(
+              onPressed: widget.onOpen,
+              child: Text(
+                c.result == null ? 'Открыть обработку' : 'Открыть summary',
+              ),
+            ),
+          ),
+          Expanded(
+            child: FutureBuilder<Transcript>(
+              future: _source,
+              builder: (_, snapshot) => ListView(
+                padding: const EdgeInsets.all(20),
+                children: [
+                  Text(
+                    c.recovery.operation?.title ?? c.draft.title,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 16),
+                  if (_source == null)
+                    SelectableText(
+                      c.recovery.pending?.draft.text ?? c.draft.text,
+                    )
+                  else if (snapshot.hasData)
+                    SelectableText(snapshot.data!.text)
+                  else if (snapshot.hasError) ...[
+                    const Text('Не удалось загрузить исходный транскрипт.'),
+                    TextButton(
+                      onPressed: () => setState(() => _source = _load()),
+                      child: const Text('Повторить загрузку'),
+                    ),
+                  ] else
+                    const Center(child: CircularProgressIndicator()),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class ProcessingPanel extends StatelessWidget {
@@ -504,7 +653,7 @@ class ProcessingPanel extends StatelessWidget {
     if (!controller.hasOperation &&
         navigator.mounted &&
         route?.isCurrent == true) {
-      await navigator.maybePop();
+      navigator.popUntil((route) => route.isFirst);
     }
   }
 
@@ -537,7 +686,7 @@ class ProcessingPanel extends StatelessWidget {
                         ? null
                         : () => _accept(context),
                     icon: const Icon(Icons.check),
-                    label: const Text('Принять'),
+                    label: const Text('Готово'),
                   ),
                 ],
               ),

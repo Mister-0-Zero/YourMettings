@@ -37,11 +37,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final before = tester.getTopLeft(find.text('Принять'));
+    final before = tester.getTopLeft(find.text('Готово'));
     expect(find.text('Редактировать').hitTestable(), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -1000));
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(find.text('Принять')), before);
+    expect(tester.getTopLeft(find.text('Готово')), before);
     expect(tester.takeException(), isNull);
   });
   testWidgets('automatic loading, network recovery and Qwen retry UI', (
