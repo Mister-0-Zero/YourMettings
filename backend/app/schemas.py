@@ -65,6 +65,7 @@ class FolderAssignment(Input):
 
 class ProcessInput(FolderAssignment):
     title: Name
+    template_id: UUID | None = None
 
     detail_level: Literal["brief", "normal", "detailed"] = "normal"
     focus_areas: list[Literal["tasks", "owners", "deadlines", "decisions", "risks", "disagreements"]] = Field(default_factory=list, max_length=6)
@@ -79,8 +80,11 @@ class ProcessInput(FolderAssignment):
         return self
 
     def generation_options(self):
-        return {"detail_level": self.detail_level, "focus_areas": sorted(self.focus_areas),
+        result = {"detail_level": self.detail_level, "focus_areas": sorted(self.focus_areas),
             "additional_instructions": self.additional_instructions}
+        if self.template_id is not None:
+            result["template_id"] = str(self.template_id)
+        return result
 
 
 class CreateProcessInput(ProcessInput, TranscriptInput):
@@ -112,12 +116,22 @@ class SummaryEdit(Input):
         return self
 
 
+class NavigationHeading(BaseModel):
+    id: str
+    title: str
+    level: int
+    heading_index: int
+    line_index: int
+
+
 class SummaryOut(BaseModel):
     id: UUID
     transcript_id: UUID
     title: str
     content: str
     folder_ids: list[UUID]
+    navigation: list[NavigationHeading] = Field(default_factory=list)
+    template_snapshot: dict | None = None
     created_at: datetime
     updated_at: datetime
 

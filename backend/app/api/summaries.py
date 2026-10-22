@@ -8,6 +8,7 @@ from app.api.dependencies import owned_folder, owned_summary, owned_transcript, 
 from app.db.models import Summary, SummaryFolder, Transcript
 from app.services.deletion import cleanup_transcript, lock_user_data
 from app.db.session import TEST_USER_ID, get_db
+from app.services.template_rendering import navigation
 from app.schemas import FolderAssignment, SummaryEdit, SummaryList, SummaryOut
 
 router = APIRouter(prefix="/summaries", tags=["summaries"])
@@ -17,7 +18,8 @@ def summary_response(db, item):
     ids = list(db.scalars(select(SummaryFolder.folder_id).where(
         SummaryFolder.summary_id == item.id).order_by(SummaryFolder.folder_id)))
     return SummaryOut(id=item.id, transcript_id=item.transcript_id, title=item.title,
-        content=item.content, folder_ids=ids, created_at=item.created_at, updated_at=item.updated_at)
+        content=item.content, folder_ids=ids, created_at=item.created_at, updated_at=item.updated_at,
+        navigation=navigation(item.content), template_snapshot=item.template_snapshot)
 
 
 @router.get("", response_model=SummaryList)

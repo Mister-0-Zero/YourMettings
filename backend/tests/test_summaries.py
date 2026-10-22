@@ -82,6 +82,11 @@ def test_api_contract_endpoint_inventory(client):
         "/api/v1/summaries": {"get"},
         "/api/v1/summaries/{id}": {"get", "patch", "delete"},
         "/api/v1/summaries/{id}/folders": {"put"},
+        "/api/v1/summary-templates": {"get", "post"},
+        "/api/v1/summary-templates/{id}": {"get", "put", "delete"},
+        "/api/v1/summary-templates/{id}/copy": {"post"},
+        "/api/v1/template-previews": {"post"},
+        "/api/v1/template-previews/{id}": {"get"},
         "/api/v1/folders": {"get", "post"},
         "/api/v1/folders/{id}": {"patch", "delete"},
     }

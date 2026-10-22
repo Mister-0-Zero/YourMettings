@@ -65,7 +65,9 @@ def accept_processing(db, item, body, generator):
     item.processing_status = "summarizing"
     item.processing_title = body.title
     item.processing_folder_ids = body.folder_ids
-    item.processing_options = body.generation_options()
+    from app.services.template_catalog import resolve_template_snapshot
+    item.processing_options = {**body.generation_options(),
+        "template_snapshot": resolve_template_snapshot(db, body.template_id)}
     item.processing_attempt += 1
     item.error_code = None
 

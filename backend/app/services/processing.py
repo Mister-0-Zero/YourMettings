@@ -38,7 +38,7 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
         # Snapshot and close the transaction before any model/network work.
         with factory() as db:
             item = db.get(Transcript, transcript_id)
-            if item.processing_attempt != attempt or item.processing_status != "summarizing":
+            if item is None or item.processing_attempt != attempt or item.processing_status != "summarizing":
                 return
             source = item.text
             options = dict(item.processing_options)
@@ -49,10 +49,10 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
         with factory.begin() as db:
             lock_user_data(db)
             item = db.scalar(select(Transcript).where(Transcript.id == transcript_id).with_for_update())
-            if item.processing_attempt != attempt or item.processing_status != "summarizing":
+            if item is None or item.processing_attempt != attempt or item.processing_status != "summarizing":
                 return
             result = Summary(user_id=TEST_USER_ID, transcript_id=item.id,
-                title=item.processing_title, content=content)
+                title=item.processing_title, content=content, template_snapshot=options.get("template_snapshot"))
             db.add(result)
             db.flush()
             db.add_all(SummaryFolder(summary_id=result.id, folder_id=id) for id in item.processing_folder_ids)

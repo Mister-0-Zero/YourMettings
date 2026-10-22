@@ -34,6 +34,9 @@ def create(body: AudioSessionInput, response: Response,
     db: Session = Depends(get_db)):
     lock_user_data(db)
     params = body.model_dump(mode="json")
+    # Preserve pre-template fingerprints and durable deletion receipts.
+    if params.get("template_id") is None:
+        params.pop("template_id", None)
     canonical = {**params, "folder_ids": sorted(params["folder_ids"]), "focus_areas": sorted(params["focus_areas"])}
     digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     if idempotency_key:

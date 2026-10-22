@@ -12,6 +12,8 @@ from app.api.folders import router as folders_router
 from app.api.transcripts import router as transcripts_router
 from app.api.summaries import router as summaries_router
 from app.api.audio_sessions import router as audio_router
+from app.api.templates import router as templates_router
+from app.api.template_previews import router as previews_router
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,8 @@ app.include_router(transcripts_router, prefix="/api/v1")
 app.include_router(folders_router, prefix="/api/v1")
 app.include_router(summaries_router, prefix="/api/v1")
 app.include_router(audio_router, prefix="/api/v1")
+app.include_router(templates_router, prefix="/api/v1")
+app.include_router(previews_router, prefix="/api/v1")
 
 
 @app.exception_handler(HTTPException)

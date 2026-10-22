@@ -59,6 +59,7 @@ class Summary(Base):
     transcript_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("transcripts.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
     content: Mapped[str] = mapped_column(Text)
+    template_snapshot: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

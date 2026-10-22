@@ -40,7 +40,8 @@ def test_options_committed_and_delivered_to_worker(client, database, level):
     body.update(detail_level=level, focus_areas=["risks", "decisions"], additional_instructions="Укажи риски.")
     class Capture(FakeGenerator):
         def generate(self, text, *, options=None):
-            assert options == {"detail_level": level, "focus_areas": ["decisions", "risks"], "additional_instructions": "Укажи риски."}
+            assert {k: v for k, v in options.items() if k != "template_snapshot"} == {"detail_level": level, "focus_areas": ["decisions", "risks"], "additional_instructions": "Укажи риски."}
+            assert options["template_snapshot"]["is_default"] is True
             with database() as db:
                 assert db.scalar(select(Transcript)).processing_options == options
             return super().generate(text, options=options)
