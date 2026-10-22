@@ -111,6 +111,8 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('workspace-drafts')));
+          await tester.pumpAndSettle();
           await tester.tap(find.byKey(const ValueKey('draft-same-session')));
           await tester.pumpAndSettle();
           expect(

@@ -30,7 +30,7 @@ void main() {
     await tester.pumpWidget(const YourMettingsApp());
     for (final entry in {
       'Встречи': 'Ваши встречи',
-      'Пространство': 'Сохранённых черновиков пока нет.',
+      'Пространство': 'Черновики',
       'Профиль': 'Тестовый профиль',
     }.entries) {
       await tester.tap(
