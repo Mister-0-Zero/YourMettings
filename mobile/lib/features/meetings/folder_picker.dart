@@ -272,29 +272,53 @@ class _FolderPickerState extends State<_FolderPicker> {
                     ? const Center(
                         child: Text('Создайте первую папку для встречи.'),
                       )
-                    : ListView(
-                        children: [
-                          for (final entry in entries)
-                            ListTile(
-                              key: ValueKey('select-folder-${entry.folder.id}'),
-                              leading: Checkbox(
-                                value: _selected.contains(entry.folder.id),
-                                onChanged: (_) => _toggle(entry.folder.id),
-                              ),
-                              title: Text(entry.path),
-                              onTap: () => _toggle(entry.folder.id),
-                              trailing: IconButton(
-                                tooltip: 'Создать подпапку в «${entry.path}»',
-                                onPressed:
-                                    _creating || controller.loadingFolders
-                                    ? null
-                                    : () => _create(parentId: entry.folder.id),
-                                icon: const Icon(
-                                  Icons.create_new_folder_outlined,
+                    : LayoutBuilder(
+                        builder: (context, constraints) => ListView(
+                          children: [
+                            for (final entry in entries)
+                              ListTile(
+                                key: ValueKey(
+                                  'select-folder-${entry.folder.id}',
+                                ),
+                                contentPadding: EdgeInsetsDirectional.only(
+                                  start:
+                                      16 +
+                                      (entry.depth * 20.0).clamp(
+                                        0.0,
+                                        (constraints.maxWidth * .25).clamp(
+                                          0.0,
+                                          96.0,
+                                        ),
+                                      ),
+                                  end: 16,
+                                ),
+                                leading: Checkbox(
+                                  value: _selected.contains(entry.folder.id),
+                                  onChanged: (_) => _toggle(entry.folder.id),
+                                ),
+                                title: Tooltip(
+                                  message: entry.path,
+                                  excludeFromSemantics: true,
+                                  child: Text(
+                                    entry.folder.name,
+                                    semanticsLabel: entry.path,
+                                  ),
+                                ),
+                                onTap: () => _toggle(entry.folder.id),
+                                trailing: IconButton(
+                                  tooltip: 'Создать подпапку в «${entry.path}»',
+                                  onPressed:
+                                      _creating || controller.loadingFolders
+                                      ? null
+                                      : () =>
+                                            _create(parentId: entry.folder.id),
+                                  icon: const Icon(
+                                    Icons.create_new_folder_outlined,
+                                  ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
               ),
               Padding(

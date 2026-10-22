@@ -192,7 +192,17 @@ void main() {
       );
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
-      expect(find.text('Root / Child / Grand'), findsOneWidget);
+      expect(find.text('Grand'), findsOneWidget);
+      expect(find.text('Root / Child / Grand'), findsNothing);
+      expect(
+        tester.getTopLeft(find.text('Child')).dx,
+        greaterThan(tester.getTopLeft(find.text('Root')).dx),
+      );
+      expect(
+        tester.getTopLeft(find.text('Grand')).dx,
+        greaterThan(tester.getTopLeft(find.text('Child')).dx),
+      );
+      expect(find.byTooltip('Root / Child / Grand'), findsOneWidget);
       await tester.tap(find.byTooltip('Создать подпапку в «Root / Child»'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField), 'New child');
