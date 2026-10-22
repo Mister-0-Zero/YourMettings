@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../models/api_models.dart';
@@ -58,15 +60,140 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
   );
 }
 
+/// All creation entry points use the same explicit parent selection.
+Future<Folder?> createFolderDialog(
+  BuildContext context,
+  MeetingController controller, {
+  String? parentId,
+}) => showDialog<Folder>(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) =>
+      _CreateFolderDialog(controller: controller, parentId: parentId),
+);
+
+class _CreateFolderDialog extends StatefulWidget {
+  const _CreateFolderDialog({required this.controller, this.parentId});
+  final MeetingController controller;
+  final String? parentId;
+  @override
+  State<_CreateFolderDialog> createState() => _CreateFolderDialogState();
+}
+
+class _CreateFolderDialogState extends State<_CreateFolderDialog> {
+  final _form = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  late String? _parent = widget.parentId;
+  bool _saving = false;
+  String? _error;
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving || !_form.currentState!.validate()) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final folder = await widget.controller.createFolder(
+        _name.text.trim(),
+        parentId: _parent,
+      );
+      if (mounted) Navigator.pop(context, folder);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_saving,
+    child: AlertDialog(
+      scrollable: true,
+      title: const Text('Создать папку'),
+      content: Form(
+        key: _form,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _name,
+              enabled: !_saving,
+              autofocus: true,
+              maxLength: 200,
+              decoration: const InputDecoration(labelText: 'Название папки'),
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Введите название' : null,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              initialValue: _parent ?? '',
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Расположение'),
+              items: [
+                const DropdownMenuItem(
+                  value: '',
+                  child: Text('Верхний уровень'),
+                ),
+                for (final entry in flattenFolders(widget.controller.folders))
+                  DropdownMenuItem(
+                    value: entry.folder.id,
+                    child: Text(
+                      entry.path,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: _saving
+                  ? null
+                  : (v) => setState(() => _parent = v == '' ? null : v),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(_error!),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? 'Создаём…' : 'Создать'),
+        ),
+      ],
+    ),
+  );
+}
+
 Future<List<String>?> chooseFolders(
   BuildContext context,
   MeetingController controller,
   List<String> initial,
-) => showModalBottomSheet<List<String>>(
-  context: context,
-  isScrollControlled: true,
-  builder: (_) => _FolderPicker(controller: controller, initial: initial),
-);
+) {
+  // Audio review and the meeting list have different controller instances.
+  // Always refresh the API tree when opening a selection, preserving UUIDs.
+  unawaited(controller.loadFolders());
+  return showModalBottomSheet<List<String>>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _FolderPicker(controller: controller, initial: initial),
+  );
+}
 
 class _FolderPicker extends StatefulWidget {
   const _FolderPicker({required this.controller, required this.initial});
@@ -78,23 +205,25 @@ class _FolderPicker extends StatefulWidget {
 
 class _FolderPickerState extends State<_FolderPicker> {
   late final Set<String> _selected = widget.initial.toSet();
-  String? _error;
   bool _creating = false;
-  Future<void> _create() async {
-    final name = await folderNameDialog(context);
-    if (name == null || !mounted) return;
+  Future<void> _create({String? parentId}) async {
+    if (_creating) return;
+    setState(() => _creating = true);
+    final folder = await createFolderDialog(
+      context,
+      widget.controller,
+      parentId: parentId,
+    );
+    if (!mounted) return;
     setState(() {
-      _creating = true;
-      _error = null;
+      _creating = false;
+      if (folder != null) _selected.add(folder.id);
     });
-    try {
-      await widget.controller.createFolder(name);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _creating = false);
-    }
   }
+
+  void _toggle(String id) => setState(() {
+    if (!_selected.remove(id)) _selected.add(id);
+  });
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -133,10 +262,10 @@ class _FolderPickerState extends State<_FolderPicker> {
                 ),
               ),
               if (controller.loadingFolders) const LinearProgressIndicator(),
-              if (controller.folderError != null || _error != null)
+              if (controller.folderError != null)
                 Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Text(_error ?? controller.folderError!),
+                  child: Text(controller.folderError!),
                 ),
               Expanded(
                 child: entries.isEmpty
@@ -146,16 +275,24 @@ class _FolderPickerState extends State<_FolderPicker> {
                     : ListView(
                         children: [
                           for (final entry in entries)
-                            CheckboxListTile(
+                            ListTile(
+                              key: ValueKey('select-folder-${entry.folder.id}'),
+                              leading: Checkbox(
+                                value: _selected.contains(entry.folder.id),
+                                onChanged: (_) => _toggle(entry.folder.id),
+                              ),
                               title: Text(entry.path),
-                              value: _selected.contains(entry.folder.id),
-                              onChanged: (checked) => setState(() {
-                                if (checked == true) {
-                                  _selected.add(entry.folder.id);
-                                } else {
-                                  _selected.remove(entry.folder.id);
-                                }
-                              }),
+                              onTap: () => _toggle(entry.folder.id),
+                              trailing: IconButton(
+                                tooltip: 'Создать подпапку в «${entry.path}»',
+                                onPressed:
+                                    _creating || controller.loadingFolders
+                                    ? null
+                                    : () => _create(parentId: entry.folder.id),
+                                icon: const Icon(
+                                  Icons.create_new_folder_outlined,
+                                ),
+                              ),
                             ),
                         ],
                       ),
@@ -165,7 +302,9 @@ class _FolderPickerState extends State<_FolderPicker> {
                 child: Row(
                   children: [
                     TextButton.icon(
-                      onPressed: _creating ? null : _create,
+                      onPressed: _creating || controller.loadingFolders
+                          ? null
+                          : () => _create(),
                       icon: const Icon(Icons.create_new_folder_outlined),
                       label: const Text('Новая папка'),
                     ),

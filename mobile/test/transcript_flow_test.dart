@@ -85,7 +85,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Выбрать или создать папки'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(CheckboxListTile));
+      await tester.tap(find.byType(Checkbox));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Выбрать'));
       await tester.pumpAndSettle();

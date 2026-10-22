@@ -31,7 +31,33 @@ void main() {
           if (request.url.path == '/api/v1/summaries/s1') {
             return response(summaryJson);
           }
+          if (request.url.path == '/api/v1/folders') {
+            return response({
+              'items': [
+                {
+                  'id': 'f1',
+                  'name': 'Проект',
+                  'children': [
+                    {
+                      'id': 'f2',
+                      'name': 'Команда',
+                      'parent_id': 'f1',
+                      'children': [],
+                    },
+                  ],
+                },
+              ],
+            });
+          }
           expect(request.url.path, '/api/v1/summaries');
+          if (request.url.queryParameters['folder_id'] == 'f1') {
+            return response({
+              'items': [],
+              'total': 0,
+              'limit': 20,
+              'offset': 0,
+            });
+          }
           expect(request.url.queryParameters['folder_id'], 'f2');
           return response({
             'items': [summaryJson],
@@ -106,7 +132,7 @@ void main() {
       await tester.tap(find.byTooltip('Создать папку'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField), 'Новая папка');
-      await tester.tap(find.text('Сохранить'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Создать'));
       await tester.pumpAndSettle();
       expect(find.text('Новая папка'), findsOneWidget);
       expect(tester.takeException(), isNull);

@@ -17,6 +17,7 @@ class MeetingController extends ChangeNotifier {
   MeetingSummary? result;
   bool working = false;
   bool loadingFolders = false;
+  Completer<void>? _folderLoad;
   String? error;
   String? folderError;
   String? storageError;
@@ -64,7 +65,11 @@ class MeetingController extends ChangeNotifier {
   }
 
   Future<void> loadFolders() async {
-    if (loadingFolders) return;
+    if (loadingFolders) {
+      await _folderLoad?.future;
+      return;
+    }
+    final completed = _folderLoad = Completer<void>();
     loadingFolders = true;
     folderError = null;
     _notify();
@@ -74,13 +79,18 @@ class MeetingController extends ChangeNotifier {
       folderError = e.toString();
     } finally {
       loadingFolders = false;
+      _folderLoad = null;
+      completed.complete();
       _notify();
     }
   }
 
-  Future<void> createFolder(String name, {String? parentId}) async {
-    await api.createFolder(name, parentId: parentId);
+  Future<Folder> createFolder(String name, {String? parentId}) async {
+    final folder = await api.createFolder(name, parentId: parentId);
+    // An older GET may have captured the tree before this POST committed.
+    await _folderLoad?.future;
     await loadFolders();
+    return folder;
   }
 
   Future<void> deleteFolder(Folder folder) async {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
@@ -11,16 +13,7 @@ class MeetingsPage extends StatelessWidget {
   const MeetingsPage({super.key, required this.controller});
   final MeetingController controller;
   Future<void> _newFolder(BuildContext context) async {
-    final name = await folderNameDialog(context);
-    if (name == null) return;
-    try {
-      await controller.createFolder(name);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
-      }
-    }
+    await createFolderDialog(context, controller);
   }
 
   @override
@@ -102,6 +95,7 @@ class _FolderNode extends StatefulWidget {
 
 class _FolderNodeState extends State<_FolderNode> {
   bool _busy = false;
+  bool _expanded = false;
   Future<void> _action(String action) async {
     if (action == 'delete') {
       setState(() => _busy = true);
@@ -113,18 +107,22 @@ class _FolderNodeState extends State<_FolderNode> {
       if (mounted) setState(() => _busy = false);
       return;
     }
-    final name = await folderNameDialog(
-      context,
-      initial: action == 'rename' ? widget.folder.name : null,
-    );
-    if (name == null || !mounted) return;
     setState(() => _busy = true);
     try {
-      if (action == 'rename') {
+      if (action == 'create') {
+        await createFolderDialog(
+          context,
+          widget.controller,
+          parentId: widget.folder.id,
+        );
+      } else {
+        final name = await folderNameDialog(
+          context,
+          initial: widget.folder.name,
+        );
+        if (name == null || !mounted) return;
         await widget.controller.api.renameFolder(widget.folder.id, name);
         await widget.controller.loadFolders();
-      } else {
-        await widget.controller.createFolder(name, parentId: widget.folder.id);
       }
     } catch (e) {
       if (mounted) {
@@ -145,71 +143,74 @@ class _FolderNodeState extends State<_FolderNode> {
     ),
   );
   @override
-  Widget build(BuildContext context) {
-    final actions = Row(
-      mainAxisSize: MainAxisSize.min,
+  Widget build(BuildContext context) => Card(
+    child: Column(
       children: [
-        IconButton(
-          onPressed: _open,
-          icon: const Icon(Icons.article_outlined),
-          tooltip: 'Встречи в папке',
-        ),
-        if (_busy)
-          const SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
-        else
-          PopupMenuButton<String>(
-            onSelected: _action,
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'create',
-                child: Text('Создать вложенную папку'),
-              ),
-              PopupMenuItem(value: 'rename', child: Text('Переименовать')),
-              PopupMenuItem(value: 'delete', child: Text('Удалить папку')),
-            ],
-          ),
-      ],
-    );
-    if (widget.folder.children.isEmpty) {
-      return Card(
-        child: ListTile(
+        ListTile(
           leading: const Icon(Icons.folder_outlined),
           title: Text(
             widget.folder.name,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          onTap: _open,
-          trailing: actions,
+          onTap: _busy ? null : _open,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.folder.children.isNotEmpty)
+                IconButton(
+                  key: ValueKey('expand-${widget.folder.id}'),
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                  icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                  tooltip: _expanded
+                      ? 'Свернуть подпапки'
+                      : 'Показать подпапки',
+                ),
+              if (_busy)
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                PopupMenuButton<String>(
+                  onSelected: _action,
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'create',
+                      child: Text('Создать вложенную папку'),
+                    ),
+                    PopupMenuItem(
+                      value: 'rename',
+                      child: Text('Переименовать'),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Удалить папку'),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
-      );
-    }
-    return Card(
-      child: ExpansionTile(
-        leading: const Icon(Icons.folder_outlined),
-        title: Text(
-          widget.folder.name,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: actions,
-        childrenPadding: EdgeInsets.only(left: widget.depth < 3 ? 12 : 0),
-        children: [
-          for (final child in widget.folder.children)
-            _FolderNode(
-              key: ValueKey(child.id),
-              folder: child,
-              depth: widget.depth + 1,
-              controller: widget.controller,
+        if (_expanded)
+          Padding(
+            padding: EdgeInsets.only(left: widget.depth < 3 ? 12 : 0),
+            child: Column(
+              children: [
+                for (final child in widget.folder.children)
+                  _FolderNode(
+                    key: ValueKey(child.id),
+                    folder: child,
+                    depth: widget.depth + 1,
+                    controller: widget.controller,
+                  ),
+              ],
             ),
-        ],
-      ),
-    );
-  }
+          ),
+      ],
+    ),
+  );
 }
 
 class FolderContentsPage extends StatefulWidget {
@@ -229,10 +230,14 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
   int _total = 0;
   bool _loading = false;
   bool _deleting = false;
+  bool _creating = false;
   String? _error;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(widget.controller.loadFolders());
+    });
     _load(reset: true);
   }
 
@@ -270,84 +275,145 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
     await _load(reset: true);
   }
 
+  Folder? get _currentFolder {
+    for (final entry in flattenFolders(widget.controller.folders)) {
+      if (entry.folder.id == widget.folder.id) return entry.folder;
+    }
+    return null;
+  }
+
+  Future<void> _refresh() async {
+    await Future.wait<void>([
+      widget.controller.loadFolders(),
+      _load(reset: true),
+    ]);
+  }
+
+  Future<void> _createChild() async {
+    if (_creating || _currentFolder == null) return;
+    setState(() => _creating = true);
+    await createFolderDialog(
+      context,
+      widget.controller,
+      parentId: widget.folder.id,
+    );
+    if (mounted) setState(() => _creating = false);
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(
-        widget.folder.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      actions: [
-        IconButton(
-          tooltip: 'Удалить папку',
-          icon: const Icon(Icons.delete_outline),
-          onPressed: _loading || _deleting
-              ? null
-              : () async {
-                  setState(() => _deleting = true);
-                  final deleted = await deleteFolderWithConfirmation(
-                    context,
-                    widget.controller,
-                    widget.folder,
-                  );
-                  if (!mounted || !context.mounted) return;
-                  setState(() => _deleting = false);
-                  if (deleted) Navigator.of(context).pop();
-                },
-        ),
-        IconButton(
-          onPressed: _loading ? null : () => _load(reset: true),
-          icon: const Icon(Icons.refresh),
-          tooltip: 'Обновить встречи',
-        ),
-      ],
-    ),
-    body: RefreshIndicator(
-      onRefresh: () => _load(reset: true),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          16 + MediaQuery.viewPaddingOf(context).bottom,
-        ),
-        children: [
-          const Text(
-            'Встречи в этой папке. Вложенные папки открываются отдельно.',
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) {
+      final folder = _currentFolder;
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(
+            folder?.name ?? widget.folder.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 12),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) ...[
-            Text(_error!),
-            TextButton(
-              onPressed: _loading ? null : () => _load(reset: true),
-              child: const Text('Повторить'),
+          actions: [
+            IconButton(
+              tooltip: 'Удалить папку',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _loading || _deleting || _creating || folder == null
+                  ? null
+                  : () async {
+                      setState(() => _deleting = true);
+                      final deleted = await deleteFolderWithConfirmation(
+                        context,
+                        widget.controller,
+                        folder,
+                      );
+                      if (!mounted || !context.mounted) return;
+                      setState(() => _deleting = false);
+                      if (deleted) Navigator.of(context).pop();
+                    },
+            ),
+            IconButton(
+              onPressed: _loading || widget.controller.loadingFolders
+                  ? null
+                  : _refresh,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Обновить содержимое',
             ),
           ],
-          if (_items.isEmpty && !_loading && _error == null)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('В этой папке пока нет встреч.'),
+        ),
+        body: RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              16,
+              16,
+              16,
+              16 + MediaQuery.viewPaddingOf(context).bottom,
             ),
-          for (final item in _items)
-            Card(
-              child: ListTile(
-                title: Text(item.title),
-                subtitle: Text(_date(item.createdAt)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(item),
+            children: [
+              Text(
+                'Вложенные папки',
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-            ),
-          if (_items.length < _total)
-            TextButton(
-              onPressed: _loading ? null : _load,
-              child: const Text('Загрузить ещё'),
-            ),
-        ],
-      ),
-    ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _creating || _deleting || folder == null
+                    ? null
+                    : _createChild,
+                icon: const Icon(Icons.create_new_folder_outlined),
+                label: const Text('Создать подпапку'),
+              ),
+              if (widget.controller.folderError != null)
+                Text(widget.controller.folderError!),
+              if (folder == null && !widget.controller.loadingFolders)
+                const Text(
+                  'Папка больше недоступна. Вернитесь к списку папок.',
+                ),
+              if (folder != null && folder.children.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text('Вложенных папок пока нет.'),
+                ),
+              for (final child in folder?.children ?? <Folder>[])
+                _FolderNode(
+                  key: ValueKey(child.id),
+                  folder: child,
+                  controller: widget.controller,
+                ),
+              const SizedBox(height: 24),
+              Text('Встречи', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              if (_loading) const LinearProgressIndicator(),
+              if (_error != null) ...[
+                Text(_error!),
+                TextButton(
+                  onPressed: _loading ? null : () => _load(reset: true),
+                  child: const Text('Повторить'),
+                ),
+              ],
+              if (_items.isEmpty && !_loading && _error == null)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('В этой папке пока нет встреч.'),
+                ),
+              for (final item in _items)
+                Card(
+                  child: ListTile(
+                    title: Text(item.title),
+                    subtitle: Text(_date(item.createdAt)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _open(item),
+                  ),
+                ),
+              if (_items.length < _total)
+                TextButton(
+                  onPressed: _loading ? null : _load,
+                  child: const Text('Загрузить ещё'),
+                ),
+            ],
+          ),
+        ),
+      );
+    },
   );
   String _date(DateTime value) {
     final date = value.toLocal();
