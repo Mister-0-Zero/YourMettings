@@ -1,3 +1,4 @@
+import '../../services/summary_clipboard.dart';
 import '../../services/external_links.dart';
 import '../../models/processing_options.dart';
 import '../meetings/summary_page.dart';
@@ -796,6 +797,13 @@ class ProcessingPanel extends StatelessWidget {
                         : () => _accept(context),
                     icon: const Icon(Icons.check),
                     label: const Text('Готово'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: controller.working
+                        ? null
+                        : () => copySummaryToClipboard(context, result),
+                    icon: const Icon(Icons.copy_outlined),
+                    label: const Text('Копировать итог'),
                   ),
                 ],
               ),

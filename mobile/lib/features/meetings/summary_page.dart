@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../../models/api_models.dart';
+import '../../services/summary_clipboard.dart';
 import '../new_meeting/meeting_controller.dart';
 import 'folder_picker.dart';
 import 'summary_editor.dart';
@@ -236,6 +237,7 @@ class _SummaryPageViewState extends State<SummaryPageView> {
   }
 
   void _action(String action) {
+    if (action == 'copy') copySummaryToClipboard(context, _editor!.summary);
     if (action == 'folders') _changeFolders();
     if (action == 'delete') _delete();
     if (action == 'transcript') {
@@ -326,6 +328,10 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                     enabled: !_busy,
                     onSelected: _action,
                     itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'copy',
+                        child: Text('Копировать итог'),
+                      ),
                       PopupMenuItem(
                         value: 'transcript',
                         child: Text('Исходный транскрипт'),
