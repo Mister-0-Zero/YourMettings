@@ -1,0 +1,53 @@
+[
+  {
+    "case": "universal",
+    "source_chars": 1409,
+    "result_chars": 5240,
+    "seconds": 48.91,
+    "missing_markers": [],
+    "model": "qwen3.8:27b",
+    "usage": {
+      "prompt_eval_count": 2438,
+      "eval_count": 4333,
+      "done_reason": "stop"
+    },
+    "top_level_headings": [
+      "Общая информация",
+      "Содержание",
+      "Тематический разбор",
+      "Общие итоги"
+    ],
+    "topics": [
+      "Выпуск API версии 2.4",
+      "Обучение операторов",
+      "Архив и перенос файлов",
+      "Доступ подрядчика"
+    ]
+  },
+  {
+    "case": "long",
+    "source_chars": 22689,
+    "result_chars": 7222,
+    "seconds": 63.94,
+    "missing_markers": [],
+    "model": "qwen3.8:27b",
+    "usage": {
+      "prompt_eval_count": 8046,
+      "eval_count": 5610,
+      "done_reason": "stop"
+    },
+    "top_level_headings": [
+      "Общая информация",
+      "Содержание",
+      "Тематический разбор",
+      "Общие итоги"
+    ],
+    "topics": [
+      "Выпуск API версии 2.4",
+      "Обучение операторов",
+      "Архив и перенос файлов",
+      "Доступ подрядчика стенд Ладога-7",
+      "Сервер Вектор-93"
+    ]
+  }
+]

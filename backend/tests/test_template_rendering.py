@@ -123,3 +123,9 @@ def test_missing_information_normalizes_punctuation():
     spec = template()
     result = render_document({"sections": {spec["sections"][0]["id"]: "Не указано."}}, spec)
     assert "## Общие итоги\n\nНе указано\n" in result
+
+
+def test_navigation_tracks_fence_type_and_length_and_indented_atx():
+    content = "#### Title#\n````python\n~~~\n```\n## Hidden\n````\n  ### Видимый заголовок ###\n"
+    values = navigation(content)
+    assert [(h["title"], h["line_index"]) for h in values] == [("Title#", 0), ("Видимый заголовок", 6)]
