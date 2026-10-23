@@ -12,6 +12,7 @@ class TemplatePreviewSession extends ChangeNotifier
     with WidgetsBindingObserver {
   TemplatePreviewSession(this.api) {
     WidgetsBinding.instance.addObserver(this);
+    text.addListener(_notify);
   }
   final ApiClient api;
   final text = TextEditingController();
@@ -24,8 +25,13 @@ class TemplatePreviewSession extends ChangeNotifier
   int _failures = 0;
   String? _inputSignature;
   bool get active => preview != null && !preview!.finished;
-  bool uses(TemplateInput input) =>
-      _inputSignature == jsonEncode(input.toJson());
+  bool uses(TemplateInput input) => _inputSignature == _signature(input);
+
+  String _signature(TemplateInput input) => jsonEncode({
+    'template': input.toJson(),
+    'text': text.text.trim(),
+    'detail_level': detail,
+  });
   void _notify() {
     if (!_disposed) notifyListeners();
   }
@@ -57,7 +63,7 @@ class TemplatePreviewSession extends ChangeNotifier
     error = null;
     preview = null;
     _failures = 0;
-    _inputSignature = jsonEncode(input.toJson());
+    _inputSignature = _signature(input);
     _notify();
     try {
       final result = await api.startTemplatePreview(input, source, detail);
@@ -111,6 +117,7 @@ class TemplatePreviewSession extends ChangeNotifier
     _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    text.removeListener(_notify);
     text.dispose();
     super.dispose();
   }

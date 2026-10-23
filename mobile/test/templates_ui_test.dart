@@ -522,4 +522,69 @@ void main() {
     expect(find.text('Пример'), findsOneWidget);
     expect(find.text('Описание не для выбора'), findsNothing);
   });
+  testWidgets(
+    'preview identifies changed text and detail without a new request',
+    (tester) async {
+      var posts = 0;
+      final api = ApiClient(
+        Uri.parse('http://localhost/api/v1/'),
+        client: MockClient((r) async {
+          posts++;
+          return response({
+            'id': 'preview',
+            'status': 'ready',
+            'content': '## Итог',
+            'navigation': [],
+            'error': null,
+          }, 202);
+        }),
+      );
+      addTearDown(api.close);
+      final session = TemplatePreviewSession(api);
+      addTearDown(session.dispose);
+      session.text.text = 'Анна подготовит отчёт.';
+      await session.start(input());
+      expect(session.uses(input()), isTrue);
+      session.text.text = 'Анна уже подготовила отчёт.';
+      expect(session.uses(input()), isFalse);
+      session.text.text = 'Анна подготовит отчёт.';
+      expect(session.uses(input()), isTrue);
+      session.changeDetail('high');
+      expect(session.uses(input()), isFalse);
+      session.changeDetail('normal');
+      expect(session.uses(input()), isTrue);
+      expect(posts, 1);
+    },
+  );
+
+  testWidgets(
+    'pasting over the current API limit preserves all text and rejects submission',
+    (tester) async {
+      var posts = 0;
+      final api = ApiClient(
+        Uri.parse('http://localhost/api/v1/'),
+        client: MockClient((r) async {
+          posts++;
+          return response({}, 500);
+        }),
+      );
+      addTearDown(api.close);
+      final session = TemplatePreviewSession(api);
+      addTearDown(session.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TemplatePreviewPage(api: api, input: input(), session: session),
+        ),
+      );
+      final source = "Начало ${'слово ' * 2100}КОНЕЦ";
+      expect(source.runes.length, greaterThan(12000));
+      await tester.enterText(find.byType(TextField), source);
+      expect(session.text.text, source);
+      await session.start(input());
+      expect(posts, 0);
+      expect(session.error, contains('12 000'));
+      expect(session.text.text, endsWith('КОНЕЦ'));
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }

@@ -1,6 +1,7 @@
 import 'template_scaffold.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../api/api_client.dart';
 import '../../models/summary_template.dart';
@@ -49,8 +50,9 @@ class _TemplatePreviewPageState extends State<TemplatePreviewPage> {
             minLines: 6,
             maxLines: 12,
             maxLength: 12000,
+            maxLengthEnforcement: MaxLengthEnforcement.none,
             decoration: const InputDecoration(
-              labelText: 'Небольшой транскрипт',
+              labelText: 'Ваш транскрипт',
               alignLabelWithHint: true,
             ),
           ),
