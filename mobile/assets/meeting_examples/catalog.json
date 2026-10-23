@@ -1,0 +1,26 @@
+[
+  {
+    "id": "weekly_planning",
+    "title": "Планёрка команды: запуск клиентского кабинета и задачи недели",
+    "asset": "assets/meeting_examples/weekly_planning.txt",
+    "word_count": 6325,
+    "character_count": 48163,
+    "sha256": "a3383b26d5b197239c5d8837cc7dfb8029b83a38ee109cfdb9e426f4f5a8bef4"
+  },
+  {
+    "id": "manager_report",
+    "title": "Отчёт руководителю: результаты месяца, проблемы и план следующего этапа",
+    "asset": "assets/meeting_examples/manager_report.txt",
+    "word_count": 6453,
+    "character_count": 49521,
+    "sha256": "60876d74739520343f05e825f678b5df54d6a9cf85f57904cd9ec7fb9ed8f958"
+  },
+  {
+    "id": "employee_engagement",
+    "title": "Сбор идей: как повысить вовлечённость сотрудников без лишней нагрузки",
+    "asset": "assets/meeting_examples/employee_engagement.txt",
+    "word_count": 6581,
+    "character_count": 50263,
+    "sha256": "65691d80d23215b84440b78fbf502ea73e5f3dce3b75c4e591e1a3dabb421eab"
+  }
+]
