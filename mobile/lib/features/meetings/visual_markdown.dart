@@ -216,11 +216,30 @@ class VisualMarkdown {
               add(item);
             }
           } else {
+            var nestedNodes = n.children ?? <md.Node>[];
+            // Markdown wraps the single text paragraph of a loose list item
+            // in <p>; Quill exports an equivalent tight item. Ignore only this
+            // layout wrapper, retaining nested list structure and all styles.
+            // Multiple paragraphs or other blocks must still compare exactly.
+            if (n.tag == 'li' && nestedNodes.isNotEmpty) {
+              final first = nestedNodes.first;
+              if (first is md.Element &&
+                  first.tag == 'p' &&
+                  nestedNodes
+                      .skip(1)
+                      .every(
+                        (child) =>
+                            child is md.Element &&
+                            (child.tag == 'ul' || child.tag == 'ol'),
+                      )) {
+                nestedNodes = [...?first.children, ...nestedNodes.skip(1)];
+              }
+            }
             add({
               'tag': n.tag,
               'attributes': _sorted(n.attributes),
               'children': children(
-                n.children ?? [],
+                nestedNodes,
                 styles,
                 literal || n.tag == 'code' || n.tag == 'pre',
               ),
