@@ -62,6 +62,7 @@ class _TemplateSelectorState extends State<TemplateSelector> {
 
   Future<void> _choose() async {
     if (_busy) return;
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       _busy = true;
       _loading = true;

@@ -293,6 +293,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
   }
 
   Future<void> _folders() async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final selected = await chooseFolders(
       context,
       widget.controller,
@@ -305,6 +306,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
   }
 
   Future<void> _submit() async {
+    FocusManager.instance.primaryFocus?.unfocus();
     if (!_form.currentState!.validate()) return;
     if (_folderIds.isEmpty) {
       setState(() => _inputError = 'Выберите хотя бы одну папку.');
