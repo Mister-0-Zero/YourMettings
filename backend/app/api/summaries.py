@@ -9,6 +9,7 @@ from app.db.models import Summary, SummaryFolder, Transcript
 from app.services.deletion import cleanup_transcript, lock_user_data
 from app.db.session import TEST_USER_ID, get_db
 from app.services.template_rendering import navigation
+from app.services.variants import summary_version
 from app.schemas import FolderAssignment, SummaryEdit, SummaryList, SummaryOut
 
 router = APIRouter(prefix="/summaries", tags=["summaries"])
@@ -19,7 +20,8 @@ def summary_response(db, item):
         SummaryFolder.summary_id == item.id).order_by(SummaryFolder.folder_id)))
     return SummaryOut(id=item.id, transcript_id=item.transcript_id, title=item.title,
         content=item.content, folder_ids=ids, created_at=item.created_at, updated_at=item.updated_at,
-        navigation=navigation(item.content), template_snapshot=item.template_snapshot)
+        navigation=navigation(item.content), template_snapshot=item.template_snapshot,
+        generation_options=item.generation_options, version=summary_version(item))
 
 
 @router.get("", response_model=SummaryList)
@@ -42,6 +44,7 @@ def get_summary(id: UUID, db: Session = Depends(get_db)):
 @router.patch("/{id}", response_model=SummaryOut)
 def edit_summary(id: UUID, body: SummaryEdit, db: Session = Depends(get_db)):
     item = owned_summary(db, id, lock=True)
+    item.content_revision += 1
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
     db.commit()

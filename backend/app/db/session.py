@@ -32,6 +32,8 @@ def initialize_database(factory):
         ).on_conflict_do_nothing(index_elements=[User.id]))
         from app.services.template_catalog import seed_system_templates
         seed_system_templates(db)
+        from app.services.variants import initialize_variants
+        initialize_variants(db)
         # MVP supports exactly one server process. Its abandoned jobs are retryable.
         db.execute(update(Transcript).where(
             Transcript.processing_status == "summarizing"

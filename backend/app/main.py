@@ -1,4 +1,6 @@
 import logging
+import asyncio
+from contextlib import suppress
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -14,6 +16,8 @@ from app.api.summaries import router as summaries_router
 from app.api.audio_sessions import router as audio_router
 from app.api.templates import router as templates_router
 from app.api.template_previews import router as previews_router
+from app.api.summary_variants import router as variants_router
+from app.api.preview_examples import router as examples_router
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +26,27 @@ logger = logging.getLogger(__name__)
 async def lifespan(app):
     if settings.database_url:
         initialize_database(get_session_factory())
-    yield
+    async def cleanup_loop():
+        while True:
+            await asyncio.sleep(60)
+            def cleanup():
+                from sqlalchemy import text
+                from app.services.variants import expire_selections
+                with get_session_factory().begin() as db:
+                    db.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    expire_selections(db)
+            try:
+                await asyncio.to_thread(cleanup)
+            except Exception:
+                logger.error("Candidate expiration cleanup failed; will retry")
+    task = asyncio.create_task(cleanup_loop()) if settings.database_url else None
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(title="YourMettings", version="0.1.0", lifespan=lifespan)
@@ -32,6 +56,8 @@ app.include_router(summaries_router, prefix="/api/v1")
 app.include_router(audio_router, prefix="/api/v1")
 app.include_router(templates_router, prefix="/api/v1")
 app.include_router(previews_router, prefix="/api/v1")
+app.include_router(variants_router, prefix="/api/v1")
+app.include_router(examples_router, prefix="/api/v1")
 
 
 @app.exception_handler(HTTPException)

@@ -20,6 +20,12 @@ def delete_folder_tree(db, folder_id, *, confirm):
         Transcript.processing_folder_ids.overlap(ids)).limit(1))
     if active is not None:
         fail(409, "folder_processing", "Дождитесь завершения обработки в удаляемой папке.")
+    from app.db.variant_models import SummarySelection
+    from app.services.variants import now
+    if db.scalar(select(SummarySelection.id).where(SummarySelection.user_id == TEST_USER_ID,
+        SummarySelection.kind == "meeting", SummarySelection.status == "open", SummarySelection.summary_id.is_(None),
+        SummarySelection.expires_at > now(), SummarySelection.folder_ids.overlap(ids)).limit(1)) is not None:
+        fail(409, "folder_processing", "Завершите или отмените выбор варианта в этой папке.")
     candidates = list(db.scalars(select(Summary.id).join(SummaryFolder,
         SummaryFolder.summary_id == Summary.id).where(SummaryFolder.folder_id.in_(ids),
         Summary.user_id == TEST_USER_ID).distinct()))

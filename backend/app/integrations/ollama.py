@@ -70,8 +70,10 @@ class OllamaGenerator:
             with httpx.Client(base_url=self.base_url, timeout=self.timeout, transport=self.transport) as client:
                 response = client.post("/api/chat", json={
                     "model": self.model, "stream": False,
+                    **({"think": options["_think"]} if "_think" in options else {}),
                     "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": data}],
-                    "options": {"temperature": 0.2},
+                    "options": {"temperature": 0.2, **({"num_predict": options["_output_limit_tokens"]}
+                        if "_output_limit_tokens" in options else {})},
                     **({"format": output_schema(template)} if template else {}),
                 })
                 response.raise_for_status()
@@ -82,7 +84,7 @@ class OllamaGenerator:
         try:
             body = response.json()
             result = body["message"]["content"]
-            if body.get("done") is not True or not isinstance(result, str) or not result.strip():
+            if body.get("done") is not True or body.get("done_reason") == "length" or not isinstance(result, str) or not result.strip():
                 raise ValueError("Missing completed content")
         except (ValueError, KeyError, TypeError) as exc:
             raise LLMError("llm_invalid_response") from exc

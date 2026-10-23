@@ -23,9 +23,10 @@ from sqlalchemy.orm import sessionmaker
 router = APIRouter(prefix="/transcripts", tags=["transcripts"])
 
 
-def transcript_response(item):
+def transcript_response(item, db):
+    from app.services.variants import source_has_open_selection
     return TranscriptOut(id=item.id, text=item.text, created_at=item.created_at,
-        is_locked=item.first_processed_at is not None or item.processing_status == "summarizing")
+        is_locked=item.first_processed_at is not None or item.processing_status == "summarizing" or source_has_open_selection(db, item.id))
 
 
 def check_size(text):
@@ -55,10 +56,12 @@ def create_transcript(body: TranscriptInput, response: Response,
         item = Transcript(owner_user_id=TEST_USER_ID, text=body.text, source_hash=digest)
         db.add(item)
     db.commit()
-    return transcript_response(item)
+    return transcript_response(item, db)
 
 
 def accept_processing(db, item, body, generator):
+    from app.services.variants import guard_source_selection
+    guard_source_selection(db, item.id)
     validate_folders(db, body.folder_ids)
     if isinstance(generator, OllamaGenerator) and not generator.model:
         fail(503, "llm_not_configured", "На сервере не задан тег модели.")
@@ -129,18 +132,21 @@ def create_and_process(body: CreateProcessInput, tasks: BackgroundTasks,
 
 @router.get("/{id}", response_model=TranscriptOut)
 def get_transcript(id: UUID, db: Session = Depends(get_db)):
-    return transcript_response(owned_transcript(db, id))
+    return transcript_response(owned_transcript(db, id), db)
 
 
 @router.patch("/{id}", response_model=TranscriptOut)
 def edit_transcript(id: UUID, body: TranscriptInput, db: Session = Depends(get_db)):
     check_size(body.text)
+    lock_user_data(db)
+    from app.services.variants import guard_source_selection
+    guard_source_selection(db, id)
     item = owned_transcript(db, id, lock=True)
     if item.first_processed_at is not None or item.processing_status == "summarizing":
         fail(409, "transcript_locked", "Транскрипт недоступен для редактирования.")
     item.text = body.text
     db.commit()
-    return transcript_response(item)
+    return transcript_response(item, db)
 
 
 @router.post("/{id}/process", response_model=ProcessingOut, status_code=202)

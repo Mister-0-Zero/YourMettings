@@ -26,7 +26,7 @@ def database():
     command.upgrade(cfg, "head")
     engine = create_engine(url, hide_parameters=True)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE summary_templates, asr_worker_state, audio_chunks, audio_sessions, audio_session_deletions, summary_folders, summaries, transcripts, folders, users CASCADE"))
+        conn.execute(text("TRUNCATE candidate_requests, summary_candidates, summary_selections, summary_templates, asr_worker_state, audio_chunks, audio_sessions, audio_session_deletions, summary_folders, summaries, transcripts, folders, users CASCADE"))
     factory = sessionmaker(engine, expire_on_commit=False)
     initialize_database(factory)
     yield factory

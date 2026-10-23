@@ -158,11 +158,7 @@ def test_legacy_summary_has_null_snapshot_and_navigation_updates_on_edit(client,
 @pytest.fixture
 def preview_store():
     from app.api import template_previews as previews
-    with previews._lock:
-        previews._jobs.clear()
-    yield previews
-    with previews._lock:
-        previews._jobs.clear()
+    return previews
 
 
 def history_counts(database):
@@ -212,18 +208,27 @@ def test_preview_error_is_pollable_and_retry_uses_new_job(client, preview_store)
     assert client.get(f"{PREVIEWS}/{second['id']}").json()["status"] == "ready"
 
 
-def test_preview_unknown_expired_and_lost_on_restart(client, preview_store):
-    app.dependency_overrides[get_generator] = lambda: FakeGenerator()
+def test_preview_unknown_expired_and_ready_survives_restart(client, database, preview_store):
+    from app.db.variant_models import SummarySelection, SummaryCandidate
+    from app.db.session import initialize_database
+    fake = FakeGenerator()
+    app.dependency_overrides[get_generator] = lambda: fake
     assert client.get(f"{PREVIEWS}/{uuid4()}").status_code == 404
     identifier = client.post(PREVIEWS, json={"text": "Текст", "template": definition()}).json()["id"]
-    with preview_store._lock:
-        preview_store._jobs[UUID(identifier)]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
-    assert client.get(f"{PREVIEWS}/{identifier}").status_code == 404
+    with database.begin() as db:
+        candidate = db.get(SummaryCandidate, UUID(identifier))
+        session = db.get(SummarySelection, candidate.selection_id)
+        session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    assert client.get(f"{PREVIEWS}/{identifier}").status_code == 410
+    with database() as db:
+        candidate = db.get(SummaryCandidate, UUID(identifier))
+        assert candidate.content is None and candidate.options is None
+        assert db.get(SummarySelection, candidate.selection_id).source_text is None
     identifier = client.post(PREVIEWS, json={"text": "Текст", "template": definition()}).json()["id"]
-    # A new process starts with an empty RAM registry, never stale PostgreSQL jobs.
-    with preview_store._lock:
-        preview_store._jobs.clear()
-    assert client.get(f"{PREVIEWS}/{identifier}").status_code == 404
+    before = client.get(f"{PREVIEWS}/{identifier}").json()
+    initialize_database(database)
+    assert client.get(f"{PREVIEWS}/{identifier}").json() == before
+    assert fake.calls == 2
 
 
 def test_preview_active_limit_rejects_without_creating_history(client, database, preview_store, monkeypatch):
@@ -231,12 +236,14 @@ def test_preview_active_limit_rejects_without_creating_history(client, database,
     monkeypatch.setattr(BackgroundTasks, "add_task", lambda *args, **kwargs: None)
     body = {"text": "Текст", "template": definition()}
     before = history_counts(database)
-    for _ in range(preview_store.MAX_ACTIVE):
+    for _ in range(2):
         assert client.post(PREVIEWS, json=body).status_code == 202
     rejected = client.post(PREVIEWS, json=body)
-    assert rejected.status_code == 429 and rejected.json()["error"]["code"] == "preview_busy"
+    assert rejected.status_code == 429 and rejected.json()["error"]["code"] == "generation_busy"
     assert history_counts(database) == before
-    assert len(preview_store._jobs) == preview_store.MAX_ACTIVE
+    from app.db.variant_models import SummaryCandidate
+    with database() as db:
+        assert db.scalar(select(func.count()).select_from(SummaryCandidate)) == 2
 
 
 

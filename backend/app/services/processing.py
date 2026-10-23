@@ -14,6 +14,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 ERROR_MESSAGES = {
+    "context_limit_exceeded": "Текст и шаблон не удалось безопасно вместить в окно модели. Сократите структуру или исходный текст.",
     "llm_timeout": "Время ожидания модели истекло.",
     "llm_unavailable": "Модель временно недоступна.",
     "llm_invalid_response": "Модель вернула некорректный результат.",
@@ -52,7 +53,8 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
             if item is None or item.processing_attempt != attempt or item.processing_status != "summarizing":
                 return
             result = Summary(user_id=TEST_USER_ID, transcript_id=item.id,
-                title=item.processing_title, content=content, template_snapshot=options.get("template_snapshot"))
+                title=item.processing_title, content=content, template_snapshot=options.get("template_snapshot"),
+                generation_options={k: v for k, v in options.items() if k != "template_snapshot"})
             db.add(result)
             db.flush()
             db.add_all(SummaryFolder(summary_id=result.id, folder_id=id) for id in item.processing_folder_ids)
