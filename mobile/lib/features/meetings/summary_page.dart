@@ -253,12 +253,13 @@ class _SummaryPageViewState extends State<SummaryPageView> {
         ),
       ),
     );
-    if (selected != null && mounted) {
-      widget.controller.summaryUpdated(selected);
-      setState(() {
-        _loading = _load();
-      });
-    }
+    if (!mounted) return;
+    if (selected != null) widget.controller.summaryUpdated(selected);
+    // Cancellation/conflict may follow an external edit; reread current content
+    // without adopting a new version inside the old selection.
+    setState(() {
+      _loading = _load();
+    });
   }
 
   void _action(String action) {

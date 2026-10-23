@@ -160,4 +160,41 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+  testWidgets(
+    'cancelling selection rereads a concurrently edited saved summary',
+    (tester) async {
+      final server = Server()..content = '## Old result';
+      final api = ApiClient(
+        Uri.parse('http://localhost/api/v1/'),
+        operations: OperationStore(),
+        client: MockClient(server.handle),
+      );
+      final controller = MeetingController(api, MemoryStore());
+      addTearDown(controller.dispose);
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SummaryPageView(
+            controller: controller,
+            summary: MeetingSummary.fromJson(server.summary()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Изменить шаблон'));
+      await tester.pumpAndSettle();
+      server.content = '## Externally edited';
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Отменить выбор'));
+      await tester.pumpAndSettle();
+      expect(find.text('Externally edited'), findsOneWidget);
+      expect(find.text('Old result'), findsNothing);
+      expect(tester.takeException(), isNull);
+      expect(server.acceptedId, isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }
