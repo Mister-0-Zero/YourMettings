@@ -1,0 +1,241 @@
+[
+  {
+    "case": "team-standup",
+    "model": "qwen3.8:27b",
+    "seconds": 82.16,
+    "full_source_used": true,
+    "missing_markers": [],
+    "markers": [
+      "Приём заявок",
+      "Наталь",
+      "92000",
+      "5 ноября",
+      "11:30",
+      "16:00"
+    ],
+    "metadata": {
+      "strategy": "direct",
+      "source_chars": 42407,
+      "source_words": 5703,
+      "source_bytes": 77856,
+      "chunk_count": 0,
+      "reduction_rounds": 0,
+      "map_calls": 0,
+      "reduce_calls": 0,
+      "reserved_output_tokens": 12288,
+      "chat_margin_tokens": 1024,
+      "map_output_limit_tokens": 8192,
+      "map_thinking": false,
+      "final_thinking": false,
+      "token_budget_method": "validated_gguf_qwen35",
+      "tokenizer_digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+      "context_length": 32768,
+      "input_budget_tokens": 19456,
+      "source_request_cost_tokens": 26417,
+      "final_request_cost_tokens": 26417
+    },
+    "calls": [
+      {
+        "prompt_eval_count": 12145,
+        "eval_count": 5826,
+        "done_reason": "stop",
+        "output_limit_tokens": 12288,
+        "content_chars": 16173,
+        "thinking_chars": 0
+      }
+    ],
+    "runtime_budgets_fit": true,
+    "topics": [
+      "Приём заявок",
+      "Доступность склада",
+      "Дежурство поддержки",
+      "Переезд справочника",
+      "Проверка уведомлений",
+      "Демонстрация заказчику",
+      "Резерв времени"
+    ]
+  },
+  {
+    "case": "work-report",
+    "model": "qwen3.8:27b",
+    "seconds": 84.45,
+    "full_source_used": true,
+    "missing_markers": [],
+    "markers": [
+      "288000",
+      "Сергей Белов",
+      "6 ноября",
+      "15:00",
+      "95000"
+    ],
+    "metadata": {
+      "strategy": "direct",
+      "source_chars": 44212,
+      "source_words": 5908,
+      "source_bytes": 81298,
+      "chunk_count": 0,
+      "reduction_rounds": 0,
+      "map_calls": 0,
+      "reduce_calls": 0,
+      "reserved_output_tokens": 12288,
+      "chat_margin_tokens": 1024,
+      "map_output_limit_tokens": 8192,
+      "map_thinking": false,
+      "final_thinking": false,
+      "token_budget_method": "validated_gguf_qwen35",
+      "tokenizer_digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+      "context_length": 32768,
+      "input_budget_tokens": 19456,
+      "source_request_cost_tokens": 26802,
+      "final_request_cost_tokens": 26802
+    },
+    "calls": [
+      {
+        "prompt_eval_count": 12530,
+        "eval_count": 5569,
+        "done_reason": "stop",
+        "output_limit_tokens": 12288,
+        "content_chars": 16244,
+        "thinking_chars": 0
+      }
+    ],
+    "runtime_budgets_fit": true,
+    "topics": [
+      "Запуск кабинета партнёра",
+      "Сокращение ручной сверки",
+      "Устойчивость обмена",
+      "Документы и обучение",
+      "Расходы и закупки",
+      "Обратная связь пользователей",
+      "Следующий этап"
+    ]
+  },
+  {
+    "case": "engagement-ideas",
+    "model": "qwen3.8:27b",
+    "seconds": 99.03,
+    "full_source_used": true,
+    "missing_markers": [],
+    "markers": [
+      "48000",
+      "Тимур",
+      "14 декабря",
+      "12:00",
+      "17 ноября",
+      "18:30"
+    ],
+    "metadata": {
+      "strategy": "direct",
+      "source_chars": 43122,
+      "source_words": 5953,
+      "source_bytes": 79027,
+      "chunk_count": 0,
+      "reduction_rounds": 0,
+      "map_calls": 0,
+      "reduce_calls": 0,
+      "reserved_output_tokens": 12288,
+      "chat_margin_tokens": 1024,
+      "map_output_limit_tokens": 8192,
+      "map_thinking": false,
+      "final_thinking": false,
+      "token_budget_method": "validated_gguf_qwen35",
+      "tokenizer_digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+      "context_length": 32768,
+      "input_budget_tokens": 19456,
+      "source_request_cost_tokens": 26554,
+      "final_request_cost_tokens": 26554
+    },
+    "calls": [
+      {
+        "prompt_eval_count": 12282,
+        "eval_count": 6099,
+        "done_reason": "stop",
+        "output_limit_tokens": 12288,
+        "content_chars": 17261,
+        "thinking_chars": 0
+      }
+    ],
+    "runtime_budgets_fit": true,
+    "topics": [
+      "Признание полезной работы",
+      "Обмен профессиональными навыками",
+      "Встречи разных подразделений",
+      "Канал предложений",
+      "Предсказуемость графика",
+      "Участие удалённых коллег",
+      "Оценка пилота"
+    ]
+  },
+  {
+    "case": "team-standup-stress",
+    "model": "qwen3.8:27b",
+    "seconds": 151.2,
+    "full_source_used": true,
+    "missing_markers": [],
+    "markers": [
+      "Приём заявок",
+      "Наталь",
+      "92000",
+      "5 ноября",
+      "11:30",
+      "16:00"
+    ],
+    "metadata": {
+      "strategy": "hierarchical",
+      "source_chars": 84814,
+      "source_words": 11406,
+      "source_bytes": 155712,
+      "chunk_count": 2,
+      "reduction_rounds": 0,
+      "map_calls": 2,
+      "reduce_calls": 0,
+      "reserved_output_tokens": 12288,
+      "chat_margin_tokens": 1024,
+      "map_output_limit_tokens": 8192,
+      "map_thinking": false,
+      "final_thinking": false,
+      "token_budget_method": "validated_gguf_qwen35",
+      "tokenizer_digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+      "context_length": 32768,
+      "input_budget_tokens": 19456,
+      "source_request_cost_tokens": 36428,
+      "final_request_cost_tokens": 20524
+    },
+    "calls": [
+      {
+        "prompt_eval_count": 19431,
+        "eval_count": 3510,
+        "done_reason": "stop",
+        "output_limit_tokens": 8192,
+        "content_chars": 12406,
+        "thinking_chars": 0
+      },
+      {
+        "prompt_eval_count": 913,
+        "eval_count": 793,
+        "done_reason": "stop",
+        "output_limit_tokens": 8192,
+        "content_chars": 3016,
+        "thinking_chars": 0
+      },
+      {
+        "prompt_eval_count": 6252,
+        "eval_count": 5455,
+        "done_reason": "stop",
+        "output_limit_tokens": 12288,
+        "content_chars": 15037,
+        "thinking_chars": 0
+      }
+    ],
+    "runtime_budgets_fit": true,
+    "topics": [
+      "Приём заявок",
+      "Доступность склада",
+      "Дежурство поддержки",
+      "Переезд справочника",
+      "Проверка уведомлений",
+      "Демонстрация заказчику",
+      "Резерв времени и бюджет"
+    ]
+  }
+]

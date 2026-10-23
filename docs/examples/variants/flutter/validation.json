@@ -1,0 +1,197 @@
+[
+  {
+    "case": "weekly_planning",
+    "model": "qwen3.8:27b",
+    "seconds": 125.17,
+    "full_source_used": true,
+    "source_sha256": "a3383b26d5b197239c5d8837cc7dfb8029b83a38ee109cfdb9e426f4f5a8bef4",
+    "missing_markers": [],
+    "markers": [
+      "Павел",
+      "Марина",
+      "5 ноября",
+      "30 октября"
+    ],
+    "metadata": {
+      "strategy": "direct",
+      "source_chars": 48163,
+      "source_words": 6357,
+      "source_bytes": 88702,
+      "chunk_count": 0,
+      "reduction_rounds": 0,
+      "map_calls": 0,
+      "reduce_calls": 0,
+      "reserved_output_tokens": 12288,
+      "chat_margin_tokens": 1024,
+      "map_output_limit_tokens": 8192,
+      "map_thinking": false,
+      "final_thinking": false,
+      "token_budget_method": "validated_gguf_qwen35",
+      "tokenizer_digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+      "context_length": 32768,
+      "input_budget_tokens": 19456,
+      "source_request_cost_tokens": 27023,
+      "final_request_cost_tokens": 27023
+    },
+    "calls": [
+      {
+        "prompt_eval_count": 12751,
+        "eval_count": 9223,
+        "done_reason": "stop",
+        "output_limit_tokens": 12288,
+        "content_chars": 26811,
+        "thinking_chars": 0
+      }
+    ],
+    "runtime_budgets_fit": true,
+    "topics": [
+      "Пилот клиентского кабинета",
+      "Регистрация новых клиентов",
+      "Очередь обращений поддержки",
+      "Документы для оплаты",
+      "Отчёт о поведении в кабинете",
+      "Передача заказов партнёру",
+      "Замещение сотрудников",
+      "Права сотрудников клиента",
+      "База ответов для поддержки",
+      "Вводное обучение команды",
+      "Продление договоров",
+      "Проверка отката выпуска",
+      "Зависимость от поставщика уведомлений",
+      "Демонстрация итогов недели"
+    ]
+  },
+  {
+    "case": "manager_report",
+    "model": "qwen3.8:27b",
+    "seconds": 112.91,
+    "full_source_used": true,
+    "source_sha256": "60876d74739520343f05e825f678b5df54d6a9cf85f57904cd9ec7fb9ed8f958",
+    "missing_markers": [],
+    "markers": [
+      "Светлана",
+      "Николай",
+      [
+        "90000",
+        "девяносто тысяч"
+      ],
+      "3 ноября"
+    ],
+    "metadata": {
+      "strategy": "direct",
+      "source_chars": 49521,
+      "source_words": 6486,
+      "source_bytes": 91306,
+      "chunk_count": 0,
+      "reduction_rounds": 0,
+      "map_calls": 0,
+      "reduce_calls": 0,
+      "reserved_output_tokens": 12288,
+      "chat_margin_tokens": 1024,
+      "map_output_limit_tokens": 8192,
+      "map_thinking": false,
+      "final_thinking": false,
+      "token_budget_method": "validated_gguf_qwen35",
+      "tokenizer_digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+      "context_length": 32768,
+      "input_budget_tokens": 19456,
+      "source_request_cost_tokens": 27220,
+      "final_request_cost_tokens": 27220
+    },
+    "calls": [
+      {
+        "prompt_eval_count": 12948,
+        "eval_count": 8175,
+        "done_reason": "stop",
+        "output_limit_tokens": 12288,
+        "content_chars": 22734,
+        "thinking_chars": 0
+      }
+    ],
+    "runtime_budgets_fit": true,
+    "topics": [
+      "Новый порядок согласования заявки",
+      "Время обработки документов",
+      "Опыт пилотного заказчика",
+      "Расходы на внешние сервисы",
+      "Очередь сопровождения",
+      "Передача базы знаний",
+      "Подготовка смены сопровождения",
+      "Время команды проекта",
+      "Ошибки после выпуска",
+      "Проверка доступа к данным",
+      "Приоритеты следующего месяца",
+      "Работа внешнего подрядчика",
+      "Временная помощь смежной команды",
+      "Бюджет проверки следующего этапа"
+    ]
+  },
+  {
+    "case": "employee_engagement",
+    "model": "qwen3.8:27b",
+    "seconds": 131.55,
+    "full_source_used": true,
+    "source_sha256": "65691d80d23215b84440b78fbf502ea73e5f3dce3b75c4e591e1a3dabb421eab",
+    "missing_markers": [],
+    "markers": [
+      "Анна",
+      "Роман",
+      [
+        "45000",
+        "сорока пяти тысяч",
+        "сорок пять тысяч"
+      ],
+      "12 ноября",
+      "3 декабря",
+      "7 декабря"
+    ],
+    "metadata": {
+      "strategy": "direct",
+      "source_chars": 50263,
+      "source_words": 6617,
+      "source_bytes": 92627,
+      "chunk_count": 0,
+      "reduction_rounds": 0,
+      "map_calls": 0,
+      "reduce_calls": 0,
+      "reserved_output_tokens": 12288,
+      "chat_margin_tokens": 1024,
+      "map_output_limit_tokens": 8192,
+      "map_thinking": false,
+      "final_thinking": false,
+      "token_budget_method": "validated_gguf_qwen35",
+      "tokenizer_digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+      "context_length": 32768,
+      "input_budget_tokens": 19456,
+      "source_request_cost_tokens": 27383,
+      "final_request_cost_tokens": 27383
+    },
+    "calls": [
+      {
+        "prompt_eval_count": 13111,
+        "eval_count": 9300,
+        "done_reason": "stop",
+        "output_limit_tokens": 12288,
+        "content_chars": 25979,
+        "thinking_chars": 0
+      }
+    ],
+    "runtime_budgets_fit": true,
+    "topics": [
+      "Благодарность за полезную помощь",
+      "Наставник для нового сотрудника",
+      "Канал идей с обязательным ответом организатора",
+      "Час без внутренних встреч",
+      "Общение удалённых коллег",
+      "Небольшие круги обмена опытом",
+      "Показ полезного результата команды",
+      "Равное участие сменных сотрудников",
+      "Понятность целей подразделения",
+      "Обсуждение реальной нагрузки",
+      "Развитие и обмен ролями",
+      "Вопросы руководителям без публичного давления",
+      "Короткая добровольная обратная связь",
+      "Общий план и расходы экспериментов"
+    ]
+  }
+]
