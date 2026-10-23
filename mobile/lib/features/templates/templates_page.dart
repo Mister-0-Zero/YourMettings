@@ -1,3 +1,4 @@
+import 'template_scaffold.dart';
 import 'template_preview_session.dart';
 
 import 'dart:convert';
@@ -17,7 +18,12 @@ class TemplatesPage extends StatefulWidget {
 
 class _TemplatesPageState extends State<TemplatesPage> {
   late Future<List<SummaryTemplate>> _items = widget.api.templates();
-  void _reload() => setState(() => _items = widget.api.templates());
+  void _reload() {
+    setState(() {
+      _items = widget.api.templates();
+    });
+  }
+
   Future<void> _open(SummaryTemplate item) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -35,7 +41,7 @@ class _TemplatesPageState extends State<TemplatesPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => TemplateScaffold(
     appBar: AppBar(
       title: const Text('Шаблоны'),
       actions: [
@@ -191,7 +197,7 @@ class _TemplateDetailsPageState extends State<TemplateDetailsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => TemplateScaffold(
     appBar: AppBar(title: Text(_item.input.name)),
     body: ListView(
       padding: const EdgeInsets.all(20),
@@ -388,6 +394,7 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
   }
 
   Future<void> _section({int? index, bool repeated = false}) async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final result = await Navigator.of(context).push<TemplateSection>(
       MaterialPageRoute(
         builder: (_) => TemplateSectionPage(
@@ -430,7 +437,7 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
     onPopInvokedWithResult: (popped, _) {
       if (!popped) _leave();
     },
-    child: Scaffold(
+    child: TemplateScaffold(
       appBar: AppBar(
         title: Text(
           widget.template == null ? 'Новый шаблон' : 'Редактирование шаблона',
@@ -684,6 +691,7 @@ class _TemplateSectionPageState extends State<TemplateSectionPage> {
   }
 
   Future<void> _child([int? index]) async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final item = await Navigator.push<TemplateSection>(
       context,
       MaterialPageRoute(
@@ -718,7 +726,7 @@ class _TemplateSectionPageState extends State<TemplateSectionPage> {
     onPopInvokedWithResult: (popped, _) {
       if (!popped) _leave();
     },
-    child: Scaffold(
+    child: TemplateScaffold(
       appBar: AppBar(
         title: Text(_repeated ? 'Тематический блок' : 'Раздел'),
         leading: BackButton(onPressed: _leave),

@@ -1,3 +1,5 @@
+import 'template_scaffold.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
@@ -31,7 +33,7 @@ class _TemplatePreviewPageState extends State<TemplatePreviewPage> {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _session,
-    builder: (context, _) => Scaffold(
+    builder: (context, _) => TemplateScaffold(
       appBar: AppBar(title: const Text('Тест шаблона')),
       body: ListView(
         padding: const EdgeInsets.all(20),

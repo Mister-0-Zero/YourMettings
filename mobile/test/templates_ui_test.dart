@@ -400,4 +400,44 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+  testWidgets('catalog refreshes immediately after creating a template', (
+    tester,
+  ) async {
+    Map<String, dynamic>? created;
+    var gets = 0;
+    final api = ApiClient(
+      Uri.parse('http://localhost/api/v1/'),
+      client: MockClient((r) async {
+        if (r.method == 'POST') {
+          created = record(TemplateInput.fromJson(jsonDecode(r.body)));
+          return response(created!, 201);
+        }
+        gets++;
+        return response({
+          'items': [?created],
+        });
+      }),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(MaterialApp(home: TemplatesPage(api: api)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Создать шаблон'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'Fresh catalog');
+    await reveal(tester, find.text('Добавить раздел'));
+    await tester.tap(find.text('Добавить раздел'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'Result');
+    await tester.enterText(
+      find.byType(TextFormField).last,
+      'Summarize decisions',
+    );
+    await tester.tap(find.byTooltip('Готово'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Сохранить шаблон'));
+    await tester.pumpAndSettle();
+    expect(gets, 2);
+    expect(find.text('Fresh catalog'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
