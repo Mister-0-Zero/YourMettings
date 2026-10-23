@@ -110,8 +110,9 @@ class _BootstrapState extends State<_Bootstrap> {
                         ),
                         const SizedBox(height: 16),
                         FilledButton(
-                          onPressed: () =>
-                              setState(() => _initialization = _initialize()),
+                          onPressed: () => setState(() {
+                            _initialization = _initialize();
+                          }),
                           child: const Text('Повторить'),
                         ),
                       ],

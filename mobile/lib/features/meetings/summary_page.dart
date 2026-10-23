@@ -255,7 +255,9 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     );
     if (selected != null && mounted) {
       widget.controller.summaryUpdated(selected);
-      setState(() => _loading = _load());
+      setState(() {
+        _loading = _load();
+      });
     }
   }
 
@@ -301,7 +303,9 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                       children: [
                         Text(snapshot.error.toString()),
                         TextButton(
-                          onPressed: () => setState(() => _loading = _load()),
+                          onPressed: () => setState(() {
+                            _loading = _load();
+                          }),
                           child: const Text('Повторить'),
                         ),
                       ],

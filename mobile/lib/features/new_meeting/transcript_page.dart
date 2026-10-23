@@ -786,7 +786,9 @@ class _AcceptedTranscriptPanelState extends State<_AcceptedTranscriptPanel> {
                   else if (snapshot.hasError) ...[
                     const Text('Не удалось загрузить исходный транскрипт.'),
                     TextButton(
-                      onPressed: () => setState(() => _source = _load()),
+                      onPressed: () => setState(() {
+                        _source = _load();
+                      }),
                       child: const Text('Повторить загрузку'),
                     ),
                   ] else

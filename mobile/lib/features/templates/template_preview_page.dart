@@ -100,8 +100,9 @@ class _TemplatePreviewPageState extends State<TemplatePreviewPage> {
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return TextButton(
-                  onPressed: () =>
-                      setState(() => _examples = MeetingExample.catalog()),
+                  onPressed: () => setState(() {
+                    _examples = MeetingExample.catalog();
+                  }),
                   child: const Text('Повторить загрузку примеров'),
                 );
               }

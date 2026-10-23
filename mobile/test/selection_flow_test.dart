@@ -1,3 +1,4 @@
+import 'package:your_mettings/features/meetings/summary_page.dart';
 import 'package:flutter/material.dart';
 import 'package:your_mettings/models/processing_options.dart';
 import 'package:your_mettings/features/selections/selection_page.dart';
@@ -118,6 +119,44 @@ void main() {
       );
       expect(find.text('Вариант 2 из 2'), findsOneWidget);
       expect(server.variants.length, 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+  testWidgets(
+    'accepting a variant for saved meeting immediately refreshes formatted content',
+    (tester) async {
+      final server = Server()..content = '## Old result';
+      final operations = OperationStore();
+      final api = ApiClient(
+        Uri.parse('http://localhost/api/v1/'),
+        operations: operations,
+        client: MockClient(server.handle),
+      );
+      final controller = MeetingController(api, MemoryStore());
+      addTearDown(controller.dispose);
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SummaryPageView(
+            controller: controller,
+            summary: MeetingSummary.fromJson(server.summary()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Old result'), findsOneWidget);
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Изменить шаблон'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Создать вариант по шаблону'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Готово'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Variant A'), findsOneWidget);
+      expect(find.text('Old result'), findsNothing);
+      expect(find.text('Все изменения сохранены'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
