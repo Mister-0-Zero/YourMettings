@@ -91,7 +91,6 @@ class _TemplateSelectorState extends State<TemplateSelector> {
                   for (final item in items.where((t) => t.isSystem == system))
                     ListTile(
                       title: Text(item.input.name),
-                      subtitle: Text(item.input.description),
                       trailing:
                           (item.id == widget.value ||
                               (widget.value == null && item.isDefault))

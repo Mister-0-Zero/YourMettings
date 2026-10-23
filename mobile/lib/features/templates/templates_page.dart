@@ -1,3 +1,4 @@
+import 'template_help.dart';
 import 'template_scaffold.dart';
 import 'template_preview_session.dart';
 
@@ -138,27 +139,41 @@ class _TemplateDetailsPageState extends State<TemplateDetailsPage> {
   late SummaryTemplate _item = widget.template;
   bool _busy = false;
   String? _error;
-  Future<void> _edit({bool copy = false}) async {
+  Future<void> _copy() async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final item = copy
-          ? await widget.api.copyTemplate(_item.id)
-          : await widget.api.template(_item.id);
+      await widget.api.copyTemplate(_item.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Шаблон скопирован и доступен в разделе «Шаблоны».'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _edit() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final item = await widget.api.template(_item.id);
       if (!mounted) return;
       final saved = await Navigator.of(context).push<SummaryTemplate>(
         MaterialPageRoute(
           builder: (_) => TemplateEditorPage(api: widget.api, template: item),
         ),
       );
-      if (!mounted) return;
-      if (copy) {
-        Navigator.of(context).pop();
-      } else if (saved != null) {
-        setState(() => _item = saved);
-      }
+      if (mounted && saved != null) setState(() => _item = saved);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -198,7 +213,22 @@ class _TemplateDetailsPageState extends State<TemplateDetailsPage> {
 
   @override
   Widget build(BuildContext context) => TemplateScaffold(
-    appBar: AppBar(title: Text(_item.input.name)),
+    appBar: AppBar(
+      title: Text(_item.input.name),
+      actions: [
+        IconButton(
+          onPressed: _busy ? null : _copy,
+          icon: const Icon(Icons.copy_outlined),
+          tooltip: 'Копировать шаблон',
+        ),
+        if (!_item.isSystem)
+          IconButton(
+            onPressed: _busy ? null : _edit,
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Редактировать шаблон',
+          ),
+      ],
+    ),
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -210,11 +240,21 @@ class _TemplateDetailsPageState extends State<TemplateDetailsPage> {
           ),
         Text(_item.input.description),
         const SizedBox(height: 16),
-        Text(
-          _item.input.structureMode == 'strict'
-              ? 'Строгая структура'
-              : 'Гибкая структура',
-          style: Theme.of(context).textTheme.titleMedium,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                _item.input.structureMode == 'strict'
+                    ? 'Строгая структура'
+                    : 'Гибкая структура',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            const TemplateHelp(
+              title: 'Как устроен итог',
+              message: structureHelp,
+            ),
+          ],
         ),
         if (_item.input.generalInstructions.isNotEmpty)
           Padding(
@@ -223,18 +263,7 @@ class _TemplateDetailsPageState extends State<TemplateDetailsPage> {
           ),
         for (final s in _item.input.sections) _SectionDescription(section: s),
         const SizedBox(height: 20),
-        FilledButton.icon(
-          onPressed: _busy ? null : () => _edit(copy: true),
-          icon: const Icon(Icons.copy_outlined),
-          label: const Text('Копировать и настроить'),
-        ),
         if (!_item.isSystem) ...[
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _busy ? null : () => _edit(),
-            icon: const Icon(Icons.edit_outlined),
-            label: const Text('Редактировать'),
-          ),
           TextButton.icon(
             onPressed: _busy ? null : _delete,
             icon: const Icon(Icons.delete_outline),
@@ -259,7 +288,7 @@ class _SectionDescription extends StatelessWidget {
           Text(section.title, style: Theme.of(context).textTheme.titleMedium),
           Text(
             section.repeated
-                ? 'Для каждой темы'
+                ? 'Отдельно для каждой темы'
                 : section.required
                 ? 'Обязательный раздел'
                 : 'Необязательный раздел',
@@ -347,6 +376,8 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
       );
       if (!mounted) return false;
       setState(() => _canPop = true);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Изменения сохранены')));
       Navigator.pop(context, saved);
       return true;
     } catch (e) {
@@ -464,7 +495,13 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
             DropdownButtonFormField<String>(
               initialValue: _mode,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Режим структуры'),
+              decoration: const InputDecoration(
+                labelText: 'Режим структуры',
+                suffixIcon: TemplateHelp(
+                  title: 'Строгая или гибкая структура',
+                  message: structureHelp,
+                ),
+              ),
               items: const [
                 DropdownMenuItem(value: 'strict', child: Text('Строгий')),
                 DropdownMenuItem(value: 'flexible', child: Text('Гибкий')),
@@ -481,13 +518,26 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
             ),
             _field(
               _instructions,
-              'Общие инструкции для Qwen',
+              'Пожелания к итогу',
               8000,
               required: false,
               lines: 4,
             ),
             const SizedBox(height: 20),
-            Text('Разделы', style: Theme.of(context).textTheme.titleLarge),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Разделы',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                const TemplateHelp(
+                  title: 'Пожелания и разделы',
+                  message: instructionsHelp,
+                ),
+              ],
+            ),
             for (var i = 0; i < _sections.length; i++)
               _SectionRow(
                 section: _sections[i],
@@ -514,7 +564,11 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
                   OutlinedButton.icon(
                     onPressed: _busy ? null : () => _section(repeated: true),
                     icon: const Icon(Icons.repeat),
-                    label: const Text('Блок по темам'),
+                    label: const Text('Раздел для каждой темы'),
+                  ),
+                  const TemplateHelp(
+                    title: 'Раздел для каждой темы',
+                    message: topicHelp,
                   ),
                 ],
               ),
@@ -533,10 +587,6 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
               label: const Text('Протестировать'),
             ),
             const SizedBox(height: 12),
-            FilledButton(
-              onPressed: _busy ? null : _save,
-              child: const Text('Сохранить шаблон'),
-            ),
             TextButton(
               onPressed: _busy ? null : _leave,
               child: const Text('Отмена'),
@@ -592,7 +642,7 @@ class _SectionRow extends StatelessWidget {
           title: Text(section.title),
           subtitle: Text(
             section.repeated
-                ? 'Для каждой темы · подразделов: ${section.children.length}'
+                ? 'Отдельно для каждой темы · подразделов: ${section.children.length}'
                 : section.required
                 ? 'Обязательный'
                 : 'Необязательный',
@@ -728,7 +778,7 @@ class _TemplateSectionPageState extends State<TemplateSectionPage> {
     },
     child: TemplateScaffold(
       appBar: AppBar(
-        title: Text(_repeated ? 'Тематический блок' : 'Раздел'),
+        title: Text(_repeated ? 'Раздел для каждой темы' : 'Раздел'),
         leading: BackButton(onPressed: _leave),
         actions: [
           IconButton(
@@ -768,15 +818,17 @@ class _TemplateSectionPageState extends State<TemplateSectionPage> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Обязательный раздел'),
+              secondary: const TemplateHelp(
+                title: 'Нужен ли раздел всегда',
+                message: requiredHelp,
+              ),
               value: _required,
               onChanged: (v) => setState(() => _required = v),
             ),
             if (_repeated) ...[
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text(
-                  'Подразделы повторяются для каждой найденной темы.',
-                ),
+                child: Text('У каждой темы встречи будут свои подразделы.'),
               ),
               for (var i = 0; i < _children.length; i++)
                 _SectionRow(

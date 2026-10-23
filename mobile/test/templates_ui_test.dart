@@ -73,54 +73,85 @@ Future<void> openEditor(
 }
 
 Future<void> reveal(WidgetTester tester, Finder finder) async {
-  await tester.ensureVisible(finder);
+  for (var i = 0; i < 20 && finder.evaluate().isEmpty; i++) {
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -250));
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(finder.first);
   await tester.pumpAndSettle();
 }
 
 void main() {
-  testWidgets(
-    'system templates read only; copy creates user template and save uses PUT',
-    (tester) async {
-      final requests = <http.Request>[];
-      final api = ApiClient(
-        Uri.parse('http://localhost/api/v1/'),
-        client: MockClient((r) async {
-          requests.add(r);
-          if (r.url.path.endsWith('/copy')) {
-            return response(record(input()), 201);
-          }
-          if (r.method == 'PUT') {
-            return response(
-              record(TemplateInput.fromJson(jsonDecode(r.body))),
-              200,
-            );
-          }
-          return response(record(input(), system: true));
-        }),
-      );
-      addTearDown(api.close);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: TemplateDetailsPage(
-            api: api,
-            template: SummaryTemplate.fromJson(record(input(), system: true)),
-          ),
+  testWidgets('copy only copies, confirms success and keeps read-only view', (
+    tester,
+  ) async {
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      Uri.parse('http://localhost/api/v1/'),
+      client: MockClient((r) async {
+        requests.add(r);
+        return response(record(input()), 201);
+      }),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TemplateDetailsPage(
+          api: api,
+          template: SummaryTemplate.fromJson(record(input(), system: true)),
         ),
-      );
-      expect(find.text('Редактировать'), findsNothing);
-      expect(find.text('Удалить шаблон'), findsNothing);
-      await reveal(tester, find.text('Копировать и настроить'));
-      await tester.tap(find.text('Копировать и настроить'));
-      await tester.pumpAndSettle();
-      expect(requests.single.url.path, '/api/v1/summary-templates/tpl/copy');
-      await tester.enterText(find.byType(TextFormField).first, 'Моя копия');
-      await tester.tap(find.byTooltip('Сохранить шаблон'));
-      await tester.pumpAndSettle();
-      expect(requests.last.method, 'PUT');
-      expect(jsonDecode(requests.last.body)['name'], 'Моя копия');
-      expect(jsonDecode(requests.last.body).containsKey('is_system'), false);
-    },
-  );
+      ),
+    );
+    expect(find.byTooltip('Редактировать шаблон'), findsNothing);
+    expect(find.text('Удалить шаблон'), findsNothing);
+    await tester.tap(find.byTooltip('Копировать шаблон'));
+    await tester.pumpAndSettle();
+    expect(requests.single.url.path, '/api/v1/summary-templates/tpl/copy');
+    expect(find.byType(TemplateEditorPage), findsNothing);
+    expect(
+      find.text('Шаблон скопирован и доступен в разделе «Шаблоны».'),
+      findsOneWidget,
+    );
+  });
+  testWidgets('pencil opens edit and check saves with confirmation', (
+    tester,
+  ) async {
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      Uri.parse('http://localhost/api/v1/'),
+      client: MockClient((r) async {
+        requests.add(r);
+        return response(
+          record(
+            r.method == 'PUT'
+                ? TemplateInput.fromJson(jsonDecode(r.body))
+                : input(),
+          ),
+        );
+      }),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TemplateDetailsPage(
+          api: api,
+          template: SummaryTemplate.fromJson(record(input())),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Редактировать шаблон'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'Изменённый шаблон',
+    );
+    await tester.tap(find.byTooltip('Сохранить шаблон'));
+    await tester.pumpAndSettle();
+    expect(requests.last.method, 'PUT');
+    expect(jsonDecode(requests.last.body)['name'], 'Изменённый шаблон');
+    expect(find.text('Изменения сохранены'), findsOneWidget);
+    expect(find.byType(TemplateEditorPage), findsNothing);
+  });
   testWidgets(
     'editor reorders nested sections, preserves IDs and stays on failed save',
     (tester) async {
@@ -147,7 +178,7 @@ void main() {
         api,
         template: SummaryTemplate.fromJson(record(input())),
       );
-      await reveal(tester, find.byTooltip('Переместить ниже').first);
+      await reveal(tester, find.byTooltip('Переместить ниже'));
       await tester.tap(find.byTooltip('Переместить ниже').first);
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Сохранить шаблон'));
@@ -202,8 +233,8 @@ void main() {
       );
       addTearDown(api.close);
       await openEditor(tester, api);
-      await reveal(tester, find.text('Блок по темам'));
-      await tester.tap(find.text('Блок по темам'));
+      await reveal(tester, find.text('Раздел для каждой темы'));
+      await tester.tap(find.text('Раздел для каждой темы'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byType(TextFormField).first,
@@ -227,7 +258,10 @@ void main() {
       await tester.tap(find.byTooltip('Готово'));
       await tester.pumpAndSettle();
       expect(find.text('Темы обсуждения'), findsOneWidget);
-      expect(find.text('Для каждой темы · подразделов: 1'), findsOneWidget);
+      expect(
+        find.text('Отдельно для каждой темы · подразделов: 1'),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -439,5 +473,53 @@ void main() {
     expect(gets, 2);
     expect(find.text('Fresh catalog'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+  testWidgets('structure help opens on tap and selector lists only names', (
+    tester,
+  ) async {
+    final api = ApiClient(
+      Uri.parse('http://localhost/api/v1/'),
+      client: MockClient(
+        (_) async => response({
+          'items': [
+            record(
+              TemplateInput(
+                name: 'Пример',
+                description: 'Описание не для выбора',
+                sections: input().sections,
+              ),
+              system: true,
+            ),
+          ],
+        }),
+      ),
+    );
+    addTearDown(api.close);
+    await openEditor(tester, api);
+    final help = find.byWidgetPredicate(
+      (w) =>
+          w is IconButton &&
+          w.tooltip is String &&
+          w.tooltip!.startsWith('Строгая структура:'),
+    );
+    await reveal(tester, help);
+    await tester.tap(help);
+    await tester.pumpAndSettle();
+    expect(find.text('Строгая или гибкая структура'), findsOneWidget);
+    expect(find.textContaining('«Решения» и «Задачи»'), findsOneWidget);
+    await tester.tap(find.text('Понятно'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TemplateSelector(api: api, value: null, onChanged: (_) {}),
+        ),
+      ),
+    );
+    await tester.tap(find.byType(OutlinedButton));
+    await tester.pumpAndSettle();
+    expect(find.text('Пример'), findsOneWidget);
+    expect(find.text('Описание не для выбора'), findsNothing);
   });
 }
