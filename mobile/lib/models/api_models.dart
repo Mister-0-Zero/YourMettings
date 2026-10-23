@@ -74,6 +74,8 @@ class MeetingSummary {
     required this.updatedAt,
     this.navigation = const [],
     this.templateSnapshot,
+    this.version,
+    this.generationOptions,
   });
   final String id;
   final String transcriptId;
@@ -84,6 +86,8 @@ class MeetingSummary {
   final DateTime updatedAt;
   final List<SummaryHeading> navigation;
   final Json? templateSnapshot;
+  final String? version;
+  final Json? generationOptions;
   factory MeetingSummary.fromJson(Json json) => MeetingSummary(
     id: json['id'] as String,
     transcriptId: json['transcript_id'] as String,
@@ -93,6 +97,8 @@ class MeetingSummary {
     createdAt: DateTime.parse(json['created_at'] as String),
     updatedAt: DateTime.parse(json['updated_at'] as String),
     templateSnapshot: json['template_snapshot'] as Json?,
+    version: json['version'] as String?,
+    generationOptions: json['generation_options'] as Json?,
     navigation: [
       for (final h in json['navigation'] as List? ?? [])
         SummaryHeading.fromJson(h as Json),

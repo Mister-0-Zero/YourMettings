@@ -1,3 +1,4 @@
+import '../services/operation_store.dart';
 import '../models/summary_template.dart';
 import '../models/processing_options.dart';
 
@@ -28,10 +29,12 @@ class ApiClient {
     this.baseUri, {
     http.Client? client,
     this.timeout = const Duration(seconds: 20),
+    this.operations,
   }) : _client = client ?? http.Client();
   final Uri baseUri;
   final http.Client _client;
   final Duration timeout;
+  final OperationStore? operations;
 
   Future<Json> _request(
     String method,
@@ -238,11 +241,13 @@ class ApiClient {
   Future<TemplatePreview> startTemplatePreview(
     TemplateInput input,
     String text,
-    String detailLevel,
-  ) async => TemplatePreview.fromJson(
+    String detailLevel, {
+    String? idempotencyKey,
+  }) async => TemplatePreview.fromJson(
     await _request(
       'POST',
       'template-previews',
+      idempotencyKey: idempotencyKey,
       body: {
         'template': input.toJson(),
         'text': text,
@@ -252,5 +257,44 @@ class ApiClient {
   );
   Future<TemplatePreview> templatePreview(String id) async =>
       TemplatePreview.fromJson(await _request('GET', 'template-previews/$id'));
+  Future<void> cancelTemplatePreview(String id) async {
+    await _request(
+      'DELETE',
+      'template-previews/$id',
+      query: {'confirm': 'true'},
+    );
+  }
+
+  Future<Json> createSelection(Json source, String key) =>
+      _request('POST', 'summary-selections', body: source, idempotencyKey: key);
+  Future<Json> selection(String id) =>
+      _request('GET', 'summary-selections/$id');
+  Future<Json> createCandidate(String id, Json options, String key) => _request(
+    'POST',
+    'summary-selections/$id/candidates',
+    body: options,
+    idempotencyKey: key,
+  );
+  Future<Json> candidate(String id) =>
+      _request('GET', 'summary-candidates/$id');
+  Future<MeetingSummary> acceptSelection(
+    String id,
+    String candidateId,
+    String? version,
+  ) async => MeetingSummary.fromJson(
+    await _request(
+      'POST',
+      'summary-selections/$id/accept',
+      body: {'candidate_id': candidateId, 'expected_version': version},
+    ),
+  );
+  Future<void> cancelSelection(String id) async {
+    await _request(
+      'DELETE',
+      'summary-selections/$id',
+      query: {'confirm': 'true'},
+    );
+  }
+
   void close() => _client.close();
 }

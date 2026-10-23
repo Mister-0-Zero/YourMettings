@@ -4,19 +4,43 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../api/api_client.dart';
+import '../../models/api_models.dart';
+import '../../models/generation_source.dart';
 import '../../models/summary_template.dart';
 
-/// One temporary test session belongs to the template editor, across visits to
-/// preview. Nothing here enters meeting recovery, files or the meeting API.
+/// A single recoverable template test, separate from the meeting history.
 class TemplatePreviewSession extends ChangeNotifier
     with WidgetsBindingObserver {
   TemplatePreviewSession(this.api) {
+    final saved = api.operations?[slot];
+    if (saved != null) {
+      detail = saved['detail'] as String;
+      text.text = saved['custom_text'] as String? ?? '';
+      exampleId = saved['example_id'] as String?;
+      exampleTitle = saved['example_title'] as String?;
+      if (exampleId == null) {
+        text.text = saved['text'] as String;
+      } else {
+        exampleText = saved['text'] as String;
+      }
+      _inputSignature = saved['signature'] as String?;
+      _request = saved['request'] as Json?;
+      final id = saved['preview_id'] as String?;
+      if (id != null) {
+        _request = null;
+        preview = TemplatePreview(id: id, status: 'queued');
+        unawaited(_poll());
+      }
+    }
     WidgetsBinding.instance.addObserver(this);
     text.addListener(_notify);
   }
+  static const slot = 'template-preview';
   final ApiClient api;
   final text = TextEditingController();
   String detail = 'normal';
+  String? exampleId, exampleTitle, exampleText;
+  String get source => exampleId == null ? text.text : exampleText ?? '';
   TemplatePreview? preview;
   String? error;
   bool sending = false;
@@ -24,12 +48,14 @@ class TemplatePreviewSession extends ChangeNotifier
   Timer? _timer;
   int _failures = 0;
   String? _inputSignature;
+  Json? _request;
   bool get active => preview != null && !preview!.finished;
+  bool get uncertain => _request != null && preview == null;
+  bool get locked => sending || active || uncertain;
   bool uses(TemplateInput input) => _inputSignature == _signature(input);
-
   String _signature(TemplateInput input) => jsonEncode({
     'template': input.toJson(),
-    'text': text.text.trim(),
+    'text': source,
     'detail_level': detail,
   });
   void _notify() {
@@ -37,8 +63,31 @@ class TemplatePreviewSession extends ChangeNotifier
   }
 
   void changeDetail(String value) {
+    if (locked) return;
     detail = value;
     _notify();
+  }
+
+  void chooseExample({String? id, String? title, String? content}) {
+    if (locked) return;
+    exampleId = id;
+    exampleTitle = title;
+    exampleText = content;
+    _notify();
+  }
+
+  Future<void> _save(TemplateInput input) async {
+    await api.operations?.put(slot, {
+      'text': source,
+      'custom_text': text.text,
+      'detail': detail,
+      'example_id': exampleId,
+      'example_title': exampleTitle,
+      'signature': _inputSignature,
+      'input': input.toJson(),
+      'request': _request,
+      'preview_id': preview?.id,
+    });
   }
 
   @override
@@ -47,33 +96,60 @@ class TemplatePreviewSession extends ChangeNotifier
     if (_paused) {
       _timer?.cancel();
     } else if (active) {
-      _poll();
+      unawaited(_poll());
     }
   }
 
   Future<void> start(TemplateInput input) async {
     if (sending || active || _disposed) return;
-    final source = text.text.trim();
-    if (source.isEmpty || source.runes.length > 12000) {
-      error = 'Добавьте текст: от 1 до 12 000 символов.';
+    final validation = validateGenerationSource(source);
+    if (!uncertain && validation != null) {
+      error = validation;
       _notify();
       return;
     }
     sending = true;
     error = null;
-    preview = null;
     _failures = 0;
-    _inputSignature = _signature(input);
     _notify();
     try {
-      final result = await api.startTemplatePreview(input, source, detail);
+      if (_request == null) {
+        _inputSignature = _signature(input);
+        preview = null;
+        _request = {
+          'key': newSectionId(),
+          'input': input.toJson(),
+          'text': source,
+          'custom_text': text.text,
+          'detail': detail,
+        };
+      }
+      // Before HTTP, freeze the exact replay body and its key on disk.
+      await _save(input);
+      final result = await api.startTemplatePreview(
+        TemplateInput.fromJson(_request!['input'] as Json),
+        _request!['text'] as String,
+        _request!['detail'] as String,
+        idempotencyKey: _request!['key'] as String,
+      );
       if (_disposed) return;
       preview = result;
+      await _save(input);
+      _request = null;
+      await _save(input);
       _schedule();
     } catch (e) {
-      error = e is ApiException && e.code == 'preview_busy'
+      error =
+          e is ApiException &&
+              ['generation_busy', 'preview_busy'].contains(e.code)
           ? 'Сейчас выполняются другие тесты. Попробуйте немного позже.'
           : e.toString();
+      if (e is ApiException &&
+          e.statusCode != null &&
+          [404, 409, 410, 413, 422, 429].contains(e.statusCode)) {
+        _request = null;
+        await _save(input);
+      }
     } finally {
       sending = false;
       _notify();
@@ -99,8 +175,17 @@ class TemplatePreviewSession extends ChangeNotifier
     } catch (e) {
       if (_disposed) return;
       _failures++;
-      if (e is ApiException && e.statusCode == 404) {
+      if (e is ApiException && [404, 410].contains(e.statusCode)) {
         preview = null;
+        _request = null;
+        final saved = api.operations?[slot];
+        if (saved != null) {
+          await api.operations!.put(slot, {
+            ...saved,
+            'preview_id': null,
+            'request': null,
+          });
+        }
         error = 'Тест больше недоступен. Ваш текст сохранён на этом экране; запустите тест ещё раз.';
       } else {
         error = 'Не удалось получить результат. Проверим соединение ещё раз.';
