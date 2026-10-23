@@ -72,6 +72,8 @@ class MeetingSummary {
     required this.folderIds,
     required this.createdAt,
     required this.updatedAt,
+    this.navigation = const [],
+    this.templateSnapshot,
   });
   final String id;
   final String transcriptId;
@@ -80,6 +82,8 @@ class MeetingSummary {
   final List<String> folderIds;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final List<SummaryHeading> navigation;
+  final Json? templateSnapshot;
   factory MeetingSummary.fromJson(Json json) => MeetingSummary(
     id: json['id'] as String,
     transcriptId: json['transcript_id'] as String,
@@ -88,6 +92,11 @@ class MeetingSummary {
     folderIds: (json['folder_ids'] as List).cast<String>(),
     createdAt: DateTime.parse(json['created_at'] as String),
     updatedAt: DateTime.parse(json['updated_at'] as String),
+    templateSnapshot: json['template_snapshot'] as Json?,
+    navigation: [
+      for (final h in json['navigation'] as List? ?? [])
+        SummaryHeading.fromJson(h as Json),
+    ],
   );
 }
 
@@ -144,4 +153,26 @@ class ProcessingStatus {
       errorMessage: error?['message'] as String?,
     );
   }
+}
+
+class SummaryHeading {
+  const SummaryHeading({
+    required this.id,
+    required this.title,
+    required this.level,
+    required this.headingIndex,
+    required this.lineIndex,
+  });
+  final String id;
+  final String title;
+  final int level;
+  final int headingIndex;
+  final int lineIndex;
+  factory SummaryHeading.fromJson(Json j) => SummaryHeading(
+    id: j['id'] as String,
+    title: j['title'] as String,
+    level: j['level'] as int,
+    headingIndex: j['heading_index'] as int,
+    lineIndex: j['line_index'] as int,
+  );
 }

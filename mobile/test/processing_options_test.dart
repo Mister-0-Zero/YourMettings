@@ -10,6 +10,7 @@ import 'package:your_mettings/services/recovery_store.dart';
 import 'package:your_mettings/features/new_meeting/meeting_controller.dart';
 
 const chosen = ProcessingOptions(
+  templateId: '019a0120-0000-7000-8000-000000000005',
   detailLevel: 'detailed',
   focusAreas: ['risks', 'tasks'],
   additionalInstructions: '  Сохрани технические детали.  ',

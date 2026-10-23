@@ -1,3 +1,4 @@
+import '../models/summary_template.dart';
 import '../models/processing_options.dart';
 
 import 'dart:async';
@@ -206,5 +207,50 @@ class ApiClient {
   Future<Folder> renameFolder(String id, String name) async => Folder.fromJson(
     await _request('PATCH', 'folders/$id', body: {'name': name}),
   );
+  Future<List<SummaryTemplate>> templates() async {
+    final json = await _request('GET', 'summary-templates');
+    return [
+      for (final item in json['items'] as List)
+        SummaryTemplate.fromJson(item as Json),
+    ];
+  }
+
+  Future<SummaryTemplate> template(String id) async =>
+      SummaryTemplate.fromJson(await _request('GET', 'summary-templates/$id'));
+  Future<SummaryTemplate> saveTemplate(
+    TemplateInput input, {
+    String? id,
+  }) async => SummaryTemplate.fromJson(
+    await _request(
+      id == null ? 'POST' : 'PUT',
+      id == null ? 'summary-templates' : 'summary-templates/$id',
+      body: input.toJson(),
+    ),
+  );
+  Future<SummaryTemplate> copyTemplate(String id) async =>
+      SummaryTemplate.fromJson(
+        await _request('POST', 'summary-templates/$id/copy', body: {}),
+      );
+  Future<void> deleteTemplate(String id) async {
+    await _request('DELETE', 'summary-templates/$id');
+  }
+
+  Future<TemplatePreview> startTemplatePreview(
+    TemplateInput input,
+    String text,
+    String detailLevel,
+  ) async => TemplatePreview.fromJson(
+    await _request(
+      'POST',
+      'template-previews',
+      body: {
+        'template': input.toJson(),
+        'text': text,
+        'detail_level': detailLevel,
+      },
+    ),
+  );
+  Future<TemplatePreview> templatePreview(String id) async =>
+      TemplatePreview.fromJson(await _request('GET', 'template-previews/$id'));
   void close() => _client.close();
 }
