@@ -108,7 +108,9 @@ def main():
             "metadata": metadata, "calls": call_usage,
             "runtime_budgets_fit": all(u["prompt_eval_count"] + u["output_limit_tokens"] <= metadata["context_length"] for u in call_usage),
             "topics": [h["title"] for h in navigation(content) if h["level"] == 3]}
-        (results_dir/(slug+".md")).write_text(content+"\n", encoding="utf-8")
+        # Preserve generated Markdown, normalizing only trailing whitespace in artifacts.
+        artifact = "\n".join(line.rstrip() for line in content.splitlines()) + "\n"
+        (results_dir/(slug+".md")).write_text(artifact, encoding="utf-8")
         results.append(record)
         (results_dir/"validation.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(record, ensure_ascii=False), flush=True)
