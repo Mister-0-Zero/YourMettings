@@ -50,7 +50,7 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         final content =
-            '# Начало **важно**\n\n```text\n## Не заголовок\n```\n\nСтарый заголовок\n---\n\n> ## Цитата\n\n## Повтор\n\n${List.filled(45, 'Длинный абзац с **решением** и *пояснением*.\n\n').join()}## Повтор\n\nФинальный абзац.\n';
+            '# Начало - **важно**\n\n```text\n## Не заголовок\n```\n\nСтарый заголовок\n---\n\n> ## Цитата\n\n## Повтор\n\n${List.filled(45, 'Длинный абзац с **решением** и *пояснением*.\n\n').join()}## Повтор\n\nФинальный абзац.\n';
         final lines = content.split('\n');
         final indices = [
           0,
@@ -61,7 +61,7 @@ void main() {
           for (var i = 0; i < indices.length; i++)
             SummaryHeading(
               id: 'ym-h-$i',
-              title: i == 0 ? 'Начало важно' : 'Повтор',
+              title: i == 0 ? r'Начало \- **важно**' : 'Повтор',
               level: i == 0 ? 1 : 2,
               headingIndex: i,
               lineIndex: indices[i],
@@ -103,6 +103,13 @@ void main() {
         );
         await tester.tap(find.text('Оглавление'));
         await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('toc-ym-h-0')),
+            matching: find.text('Начало - важно'),
+          ),
+          findsOneWidget,
+        );
         await tester.tap(find.byKey(const ValueKey('toc-ym-h-2')));
         await tester.pumpAndSettle();
         final target = tester.getRect(

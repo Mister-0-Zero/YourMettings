@@ -91,7 +91,12 @@ class _SummaryDocumentState extends State<SummaryDocument> {
                     child: ListTile(
                       dense: true,
                       key: ValueKey('toc-${heading.id}'),
-                      title: Text(heading.title),
+                      title: Text(
+                        md.Document(encodeHtml: false)
+                            .parseInline(heading.title)
+                            .map((node) => node.textContent)
+                            .join(),
+                      ),
                       onTap: () => _link('#${heading.id}'),
                     ),
                   ),
