@@ -86,6 +86,25 @@ void main() {
     },
   );
   test(
+    'full-size preview result edits and reopens without text or structure loss',
+    () {
+      final source = File(
+        'test/fixtures/template_long_preview_real_2026-10-24.md',
+      ).readAsStringSync();
+      final model = VisualDocument(source, onChanged: (_, _) {});
+      addTearDown(model.dispose);
+      expect(model.hasProtected, isFalse);
+      expect(model.export(), source);
+      model.sections.first.controller!.document.insert(0, 'Проверено ');
+      final edited = model.export();
+      expect(plain(edited), 'Проверено ${plain(source)}');
+      expect(structure(edited), structure(source));
+      final reopened = VisualDocument(edited, onChanged: (_, _) {});
+      addTearDown(reopened.dispose);
+      expect(reopened.export(), edited);
+    },
+  );
+  test(
     'loose-list normalization does not permit merging distinct paragraphs',
     () {
       const source =

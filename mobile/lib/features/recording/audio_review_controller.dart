@@ -181,6 +181,7 @@ class AudioReviewController extends MeetingController {
     storageError = null;
     _signal();
     try {
+      await cancelOpenSelection();
       var entry = drafts![sessionId];
       // Persist intent before HTTP. A lost reply must not permit confirm/POST.
       if (entry?.serverDeleted != true) {
@@ -253,6 +254,61 @@ class AudioReviewController extends MeetingController {
     status = accepted;
     _signal();
     await check();
+  }
+
+  @override
+  String get selectionSlot =>
+      'audio-selection:${fixedSessionId ?? _boundSessionId ?? recorder.state['id'] ?? 'unbound'}';
+  @override
+  Future<Json> selectionSource() async {
+    if (deletionPending) {
+      throw const ApiException(
+        'deletion_pending',
+        'Сначала завершите удаление этой встречи.',
+      );
+    }
+    if (needsBoundaryReview && !boundariesReviewed) {
+      throw const ApiException(
+        'boundary_review_required',
+        'Проверьте отмеченные стыки распознанного текста.',
+      );
+    }
+    final id = sessionId;
+    final sourceId = session['transcript_id'] as String;
+    await api.updateTranscript(sourceId, draft.text);
+    final fresh = await withAudioApi((client) => client.json('GET', '/$id'));
+    final hash = sha256.convert(utf8.encode(draft.text)).toString();
+    if (fresh['transcript_sha256'] != hash) {
+      throw const ApiException(
+        'review_outdated',
+        'Текст на сервере изменился. Проверьте его перед повторным подтверждением.',
+      );
+    }
+    return {
+      'audio_session_id': id,
+      'title': draft.title,
+      'folder_ids': draft.folderIds,
+      'confirm': true,
+      'reviewed_text_sha256': hash,
+      'boundaries_reviewed': boundariesReviewed,
+    };
+  }
+
+  @override
+  Future<void> selectionAccepted(MeetingSummary summary) async {
+    // Keep a ready result until the existing durable audio cleanup completes.
+    error = null;
+    storageError = null;
+    result = summary;
+    status = ProcessingStatus(
+      transcriptId: summary.transcriptId,
+      phase: ProcessingPhase.ready,
+      summaryId: summary.id,
+    );
+    await finish();
+    if (result != null || storageError != null || error != null) {
+      throw StateError('Audio cleanup must be retried after confirmed accept');
+    }
   }
 
   @override

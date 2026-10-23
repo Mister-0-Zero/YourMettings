@@ -8,7 +8,53 @@ import '../../models/api_models.dart';
 import '../../services/recovery_store.dart';
 
 class MeetingController extends ChangeNotifier {
-  MeetingController(this.api, this.store);
+  MeetingController(this.api, this.store) {
+    api.operations?.addListener(_notify);
+  }
+  String get selectionSlot => 'text-selection';
+  bool get selectionActive => api.operations?[selectionSlot] != null;
+  Future<Json> selectionSource() async => {
+    'text': draft.text,
+    'title': draft.title,
+    'folder_ids': draft.folderIds,
+  };
+  Future<void> cancelOpenSelection() async {
+    final operations = api.operations;
+    if (operations == null) return;
+    final slot = selectionSlot;
+    var checkpoint = operations[slot];
+    if (checkpoint == null) return;
+    if (checkpoint['accept_id'] != null ||
+        checkpoint['accepted_summary_id'] != null) {
+      throw const ApiException(
+        'accept_in_progress',
+        'Сначала завершите подтверждение сохранения выбранного варианта.',
+      );
+    }
+    checkpoint = {...checkpoint, 'cancel_pending': true};
+    await operations.put(slot, checkpoint);
+    if (checkpoint['session_id'] == null) {
+      final found = await api.createSelection(
+        checkpoint['source'] as Json,
+        checkpoint['key'] as String,
+      );
+      checkpoint = {...checkpoint, 'session_id': found['id']};
+      await operations.put(slot, checkpoint);
+    }
+    await api.cancelSelection(checkpoint['session_id'] as String);
+    await operations.remove(slot);
+  }
+
+  Future<void> selectionAccepted(MeetingSummary summary) async {
+    // Confirmed server accept precedes local source removal.
+    await store.save(RecoveryState());
+    recovery = RecoveryState();
+    result = null;
+    status = null;
+    error = null;
+    _notify();
+  }
+
   final ApiClient api;
   final RecoveryStore store;
   RecoveryState recovery = RecoveryState();
@@ -55,7 +101,7 @@ class MeetingController extends ChangeNotifier {
   }
 
   Future<void> saveDraft(Draft value) async {
-    if (hasOperation) return;
+    if (hasOperation || selectionActive) return;
     recovery = RecoveryState(draft: value);
     try {
       await _persist();
@@ -335,6 +381,7 @@ class MeetingController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    api.operations?.removeListener(_notify);
     _timer?.cancel();
     super.dispose();
   }

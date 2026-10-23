@@ -248,7 +248,8 @@ class NewMeetingPage extends StatelessWidget {
         ListTile(
           leading: const Icon(Icons.description_outlined),
           title: Text(
-            controller?.hasOperation == true
+            controller?.hasOperation == true ||
+                    controller?.selectionActive == true
                 ? 'Открыть обработку'
                 : 'Загрузить транскрипт',
           ),

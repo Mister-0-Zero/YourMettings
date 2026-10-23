@@ -1,3 +1,8 @@
+import '../../models/generation_source.dart';
+
+import 'dart:async';
+
+import '../selections/selection_page.dart';
 import '../templates/template_selector.dart';
 import '../../services/summary_clipboard.dart';
 import '../../models/processing_options.dart';
@@ -52,7 +57,13 @@ class _TranscriptPageState extends State<TranscriptPage> {
     super.initState();
     widget.controller.addListener(_operationChanged);
     _pageScroll.addListener(_updateJumpVisibility);
-    if (_hadOperation) _scheduleOperation();
+    if (widget.controller.selectionActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openSelection();
+      });
+    } else if (_hadOperation) {
+      _scheduleOperation();
+    }
   }
 
   void _scheduleOperation() {
@@ -249,9 +260,8 @@ class _TranscriptPageState extends State<TranscriptPage> {
       }
       final bytes = buffer.takeBytes();
       final text = utf8.decode(bytes).replaceFirst(RegExp(r'^\uFEFF'), '');
-      if (text.runes.length > 100000) {
-        throw const FormatException('Максимум 100 000 символов.');
-      }
+      final sourceError = _validateSource(text);
+      if (sourceError != null) throw FormatException(sourceError);
       _text.text = text;
       _save();
     } catch (e) {
@@ -305,6 +315,51 @@ class _TranscriptPageState extends State<TranscriptPage> {
     }
   }
 
+  Future<void> _openSelection() async {
+    if (_operationOpen) return;
+    _operationOpen = true;
+    final controller = widget.controller;
+    final navigator = Navigator.of(context);
+    try {
+      final result = await navigator.push<MeetingSummary>(
+        MaterialPageRoute(
+          builder: (_) => SelectionPage(
+            api: controller.api,
+            slot: controller.selectionSlot,
+            source: controller.selectionSource,
+            options: controller.draft.options,
+            title: controller.draft.title,
+            onAccepted: controller.selectionAccepted,
+          ),
+        ),
+      );
+      if (!mounted) return;
+      if (result != null) {
+        navigator.popUntil((r) => r.isFirst);
+        unawaited(
+          navigator.push<MeetingSummary>(
+            MaterialPageRoute(
+              builder: (_) =>
+                  SummaryPageView(controller: controller, summary: result),
+            ),
+          ),
+        );
+      }
+    } finally {
+      _operationOpen = false;
+    }
+  }
+
+  String? _validateSource(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Добавьте текст транскрипта';
+    }
+    if (widget.audioReview || widget.controller.api.operations == null) {
+      return value.runes.length > 100000 ? 'Максимум 100 000 символов' : null;
+    }
+    return validateGenerationSource(value);
+  }
+
   Future<void> _submit() async {
     FocusManager.instance.primaryFocus?.unfocus();
     if (!_form.currentState!.validate()) return;
@@ -330,7 +385,11 @@ class _TranscriptPageState extends State<TranscriptPage> {
           if (mounted) setState(() => _recordStarting = false);
         }
       } else {
-        await widget.controller.submit();
+        if (widget.controller.api.operations != null) {
+          await _openSelection();
+        } else {
+          await widget.controller.submit();
+        }
       }
     }
   }
@@ -364,6 +423,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
             (_) => _updateJumpVisibility(),
           );
           return !widget.controller.hasOperation &&
+                  !widget.controller.selectionActive &&
                   _text.text.trim().isNotEmpty &&
                   !_settingsReached
               ? FloatingActionButton.small(
@@ -379,6 +439,17 @@ class _TranscriptPageState extends State<TranscriptPage> {
         animation: widget.controller,
         builder: (context, _) {
           final controller = widget.controller;
+          if (controller.selectionActive) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: FilledButton(
+                  onPressed: _openSelection,
+                  child: const Text('Продолжить выбор результата'),
+                ),
+              ),
+            );
+          }
           if (controller.hasOperation) {
             return _AcceptedTranscriptPanel(
               key: ValueKey(controller.recovery.operation?.id ?? 'pending'),
@@ -445,12 +516,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                         labelText: 'Текст транскрипта',
                         hintText: 'Вставьте текст или загрузите файл .txt',
                       ),
-                      validator: (value) =>
-                          value == null || value.trim().isEmpty
-                          ? 'Добавьте текст транскрипта'
-                          : value.runes.length > 100000
-                          ? 'Максимум 100 000 символов'
-                          : null,
+                      validator: _validateSource,
                     ),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(

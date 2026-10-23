@@ -1,3 +1,6 @@
+import '../selections/selection_page.dart';
+import '../../models/processing_options.dart';
+
 import 'package:flutter/material.dart';
 
 import 'summary_document.dart';
@@ -235,7 +238,29 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     }
   }
 
+  Future<void> _changeTemplate() async {
+    if (_busy) return;
+    final summary = _editor!.summary;
+    final selected = await Navigator.of(context).push<MeetingSummary>(
+      MaterialPageRoute(
+        builder: (_) => SelectionPage(
+          api: widget.controller.api,
+          slot: 'summary-selection:${summary.id}',
+          source: () async => {'summary_id': summary.id},
+          options: ProcessingOptions.fromJson(summary.generationOptions ?? {}),
+          title: summary.title,
+          original: summary,
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      widget.controller.summaryUpdated(selected);
+      setState(() => _loading = _load());
+    }
+  }
+
   void _action(String action) {
+    if (action == 'template') _changeTemplate();
     if (action == 'copy') copySummaryToClipboard(context, _editor!.summary);
     if (action == 'folders') _changeFolders();
     if (action == 'delete') _delete();
@@ -326,7 +351,12 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                   PopupMenuButton<String>(
                     enabled: !_busy,
                     onSelected: _action,
-                    itemBuilder: (_) => const [
+                    itemBuilder: (_) => [
+                      if (widget.controller.api.operations != null)
+                        const PopupMenuItem(
+                          value: 'template',
+                          child: Text('Изменить шаблон'),
+                        ),
                       PopupMenuItem(
                         value: 'copy',
                         child: Text('Копировать итог'),

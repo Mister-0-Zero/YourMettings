@@ -1,3 +1,4 @@
+import 'services/operation_store.dart';
 import 'features/recording/recorder_coordinator.dart';
 import 'features/recording/audio_review_controller.dart';
 import 'app/appearance.dart';
@@ -38,8 +39,12 @@ class _BootstrapState extends State<_Bootstrap> {
       file: File('${directory.path}/appearance.json'),
     );
     await _appearance!.load();
+    final operations = OperationStore(
+      file: File('${directory.path}/generation-operations.json'),
+    );
+    await operations.load();
     final controller = MeetingController(
-      ApiClient(AppConfig.apiBaseUri()),
+      ApiClient(AppConfig.apiBaseUri(), operations: operations),
       FileRecoveryStore(File('${directory.path}/meeting-recovery.json')),
     );
     try {

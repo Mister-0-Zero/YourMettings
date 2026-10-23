@@ -84,6 +84,26 @@ class _TemplatesPageState extends State<TemplatesPage> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (widget.api.operations?[TemplatePreviewSession.slot] != null)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.restore),
+                  label: const Text('Продолжить тест шаблона'),
+                  onPressed: () async {
+                    final saved =
+                        widget.api.operations![TemplatePreviewSession.slot]!;
+                    await Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => TemplatePreviewPage(
+                          api: widget.api,
+                          input: TemplateInput.fromJson(
+                            saved['input'] as Map<String, dynamic>,
+                          ),
+                        ),
+                      ),
+                    );
+                    if (mounted) setState(() {});
+                  },
+                ),
               for (final system in [true, false]) ...[
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),

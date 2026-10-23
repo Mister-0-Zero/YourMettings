@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:your_mettings/features/templates/template_preview_session.dart';
 
 import 'dart:async';
@@ -82,6 +83,10 @@ Future<void> reveal(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    await rootBundle.loadString('assets/meeting_examples/catalog.json');
+  });
   testWidgets('copy only copies, confirms success and keeps read-only view', (
     tester,
   ) async {
@@ -336,6 +341,16 @@ void main() {
         find.byType(TextField),
         'Анна подготовит отчёт к пятнице.',
       );
+      for (
+        var i = 0;
+        i < 8 && find.text('Протестировать').evaluate().isEmpty;
+        i++
+      ) {
+        await tester.drag(find.byType(Scrollable).first, const Offset(0, -200));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      await tester.ensureVisible(find.text('Протестировать'));
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('Протестировать'));
       await tester.pump();
       await tester.tap(find.text('Протестировать'));
@@ -395,6 +410,16 @@ void main() {
         find.byType(TextField),
         'Текст для нескольких проверок',
       );
+      for (
+        var i = 0;
+        i < 8 && find.text('Протестировать').evaluate().isEmpty;
+        i++
+      ) {
+        await tester.drag(find.byType(Scrollable).first, const Offset(0, -200));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      await tester.ensureVisible(find.text('Протестировать'));
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('Протестировать'));
       await tester.pump();
       await tester.pumpWidget(const SizedBox());
@@ -576,13 +601,13 @@ void main() {
           home: TemplatePreviewPage(api: api, input: input(), session: session),
         ),
       );
-      final source = "Начало ${'слово ' * 2100}КОНЕЦ";
+      final source = "Начало ${'слово ' * 16000}КОНЕЦ";
       expect(source.runes.length, greaterThan(12000));
       await tester.enterText(find.byType(TextField), source);
       expect(session.text.text, source);
       await session.start(input());
       expect(posts, 0);
-      expect(session.error, contains('12 000'));
+      expect(session.error, contains('15 000'));
       expect(session.text.text, endsWith('КОНЕЦ'));
       await tester.pumpWidget(const SizedBox.shrink());
     },

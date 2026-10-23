@@ -252,6 +252,12 @@ class _AudioDraftsPageState extends State<AudioDraftsPage> {
                         ? 'Завершить сохранение'
                         : entry.deletePending
                         ? 'Удаление не завершено — повторить'
+                        : widget
+                                  .review
+                                  ?.api
+                                  .operations?['audio-selection:${entry.sessionId}'] !=
+                              null
+                        ? 'Продолжить выбор результата'
                         : entry.recovery.operation != null
                         ? 'Открыть обработку'
                         : 'Продолжить редактирование',
