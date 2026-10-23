@@ -1,5 +1,5 @@
+import '../templates/template_selector.dart';
 import '../../services/summary_clipboard.dart';
-import '../../services/external_links.dart';
 import '../../models/processing_options.dart';
 import '../meetings/summary_page.dart';
 import '../recording/audio_review_controller.dart';
@@ -9,7 +9,8 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+
+import '../meetings/summary_document.dart';
 
 import '../../models/api_models.dart';
 import '../../services/recovery_store.dart';
@@ -472,6 +473,21 @@ class _TranscriptPageState extends State<TranscriptPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  TemplateSelector(
+                    api: controller.api,
+                    value: _options.templateId,
+                    enabled: !controller.working && !controller.hasOperation,
+                    onChanged: (value) {
+                      setState(
+                        () => _options = _options.copyWith(
+                          templateId: value,
+                          useDefaultTemplate: value == null,
+                        ),
+                      );
+                      _save();
+                    },
+                  ),
+                  const SizedBox(height: 12),
                   ExpansionTile(
                     title: const Text('Настройки обработки'),
                     subtitle: const Text(
@@ -819,15 +835,9 @@ class ProcessingPanel extends StatelessWidget {
                   ),
                   if (message != null) Text(message),
                   const SizedBox(height: 20),
-                  MarkdownBody(
-                    data: result.content,
-                    onTapLink: (_, href, _) => openExternalLink(context, href),
-                    selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(
-                      Theme.of(context),
-                    ).copyWith(tableColumnWidth: const IntrinsicColumnWidth()),
-                    imageBuilder: (uri, title, alt) =>
-                        Text(alt ?? 'Изображение'),
+                  SummaryDocument(
+                    content: result.content,
+                    navigation: result.navigation,
                   ),
                 ] else ...[
                   if (!failed && !notStarted) ...[
@@ -853,6 +863,16 @@ class ProcessingPanel extends StatelessWidget {
                     Text(message),
                   ],
                   if (failed || notStarted) ...[
+                    if (controller.recovery.operation != null) ...[
+                      TemplateSelector(
+                        api: controller.api,
+                        value:
+                            controller.recovery.operation!.options.templateId,
+                        enabled: !controller.working,
+                        onChanged: controller.chooseRetryTemplate,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     FilledButton(
                       onPressed: controller.working ? null : controller.retry,
                       child: const Text('Повторить обработку'),

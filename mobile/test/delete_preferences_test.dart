@@ -89,7 +89,12 @@ void main() {
       ),
     );
     expect(prefs.skipFolderDeleteConfirmation, isFalse);
-    await tester.tap(find.byType(SwitchListTile));
+    final preference = find.widgetWithText(
+      SwitchListTile,
+      'Не спрашивать подтверждение при удалении папок',
+    );
+    await tester.ensureVisible(preference);
+    await tester.tap(preference);
     await tester.pumpAndSettle();
     expect(prefs.skipFolderDeleteConfirmation, isTrue);
   });

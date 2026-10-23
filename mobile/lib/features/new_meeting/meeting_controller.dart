@@ -224,6 +224,36 @@ class MeetingController extends ChangeNotifier {
     }
   }
 
+  Future<void> chooseRetryTemplate(String? templateId) async {
+    final operation = recovery.operation;
+    if (working ||
+        operation == null ||
+        ![
+          ProcessingPhase.error,
+          ProcessingPhase.notStarted,
+        ].contains(status?.phase)) {
+      return;
+    }
+    final previous = recovery;
+    recovery = RecoveryState(
+      operation: AcceptedOperation(
+        operation.id,
+        operation.title,
+        operation.folderIds,
+        operation.options.copyWith(
+          templateId: templateId,
+          useDefaultTemplate: templateId == null,
+        ),
+      ),
+    );
+    try {
+      await _persist();
+    } catch (_) {
+      recovery = previous;
+      _notify();
+    }
+  }
+
   Future<void> retry() async {
     final operation = recovery.operation;
     if (working || operation == null) return;

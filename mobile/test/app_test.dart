@@ -31,7 +31,7 @@ void main() {
     for (final entry in {
       'Встречи': 'Ваши встречи',
       'Пространство': 'Черновики',
-      'Профиль': 'Тестовый профиль',
+      'Профиль': 'Оформление',
     }.entries) {
       await tester.tap(
         find.descendant(

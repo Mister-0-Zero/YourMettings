@@ -1,7 +1,6 @@
-import '../../services/external_links.dart';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+
+import 'summary_document.dart';
 
 import '../../models/api_models.dart';
 import '../../services/summary_clipboard.dart';
@@ -414,19 +413,9 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                         const SizedBox(height: 16),
                         VisualEditorBody(document: _visual!, enabled: !_busy),
                       ] else
-                        MarkdownBody(
-                          data: editor.content,
-                          onTapLink: (_, href, _) =>
-                              openExternalLink(context, href),
-                          selectable: true,
-                          styleSheet:
-                              MarkdownStyleSheet.fromTheme(
-                                Theme.of(context),
-                              ).copyWith(
-                                tableColumnWidth: const IntrinsicColumnWidth(),
-                              ),
-                          imageBuilder: (uri, title, alt) =>
-                              Text(alt ?? 'Изображение'),
+                        SummaryDocument(
+                          content: editor.content,
+                          navigation: editor.summary.navigation,
                         ),
                     ],
                   ),

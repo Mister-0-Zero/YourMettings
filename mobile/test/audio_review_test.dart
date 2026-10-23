@@ -1,3 +1,5 @@
+import 'package:your_mettings/models/processing_options.dart';
+
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -71,6 +73,7 @@ void main() {
           sha256.convert(utf8.encode('Edited speech')).toString(),
         );
         expect(input['confirm'], true);
+        expect(input['template_id'], 'chosen-template');
         confirmed = true;
         throw http.ClientException('response lost after commit');
       }
@@ -93,7 +96,12 @@ void main() {
     expect(confirms, 0);
     expect(controller.draft.text, 'Original speech');
     await controller.saveDraft(
-      Draft(text: 'Edited speech', title: 'Meeting', folderIds: ['folder']),
+      Draft(
+        text: 'Edited speech',
+        title: 'Meeting',
+        folderIds: ['folder'],
+        options: const ProcessingOptions(templateId: 'chosen-template'),
+      ),
     );
     await controller.submit();
     expect(controller.error, isNotNull);

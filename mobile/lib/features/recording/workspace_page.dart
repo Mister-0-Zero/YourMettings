@@ -1,3 +1,5 @@
+import '../templates/templates_page.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../services/audio_draft_store.dart';
@@ -32,6 +34,9 @@ class WorkspacePage extends StatelessWidget {
               review: review,
               drafts: drafts,
             );
+          }
+          if (section == 'Шаблоны' && controller != null) {
+            return TemplatesPage(api: controller!.api);
           }
           return Scaffold(
             appBar: AppBar(title: Text(section)),
@@ -73,7 +78,12 @@ class WorkspacePage extends StatelessWidget {
                 'Сохранено: ${drafts?.items.length ?? 0}',
                 'drafts',
               ),
-              ('Шаблоны', Icons.article_outlined, 'Скоро', 'templates'),
+              (
+                'Шаблоны',
+                Icons.article_outlined,
+                'Структура итогов встреч',
+                'templates',
+              ),
               ('Отправка и доступ', Icons.share_outlined, 'Скоро', 'sharing'),
             ];
             return Wrap(
