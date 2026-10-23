@@ -1,3 +1,5 @@
+import 'template_preview_session.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -295,6 +297,7 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
   ];
   late final String _original = jsonEncode(_input.toJson());
   bool _busy = false, _canPop = false;
+  TemplatePreviewSession? _previewSession;
   String? _error;
   TemplateInput get _input => TemplateInput(
     name: _name.text,
@@ -312,6 +315,7 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
 
   @override
   void dispose() {
+    _previewSession?.dispose();
     _name.dispose();
     _description.dispose();
     _instructions.dispose();
@@ -411,7 +415,11 @@ class _TemplateEditorPageState extends State<TemplateEditorPage> {
     }
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => TemplatePreviewPage(api: widget.api, input: _input),
+        builder: (_) => TemplatePreviewPage(
+          api: widget.api,
+          input: _input,
+          session: _previewSession ??= TemplatePreviewSession(widget.api),
+        ),
       ),
     );
   }

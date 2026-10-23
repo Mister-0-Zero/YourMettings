@@ -1,3 +1,5 @@
+import 'package:your_mettings/features/templates/template_preview_session.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -324,6 +326,78 @@ void main() {
         'Анна подготовит отчёт к пятнице.',
       );
       expect(posts, 1);
+    },
+  );
+  testWidgets(
+    'preview survives return to instructions without another POST or losing transcript',
+    (tester) async {
+      final accept = Completer<http.Response>();
+      var posts = 0;
+      final api = ApiClient(
+        Uri.parse('http://localhost/api/v1/'),
+        client: MockClient((r) async {
+          if (r.method == 'POST') {
+            posts++;
+            return accept.future;
+          }
+          return response({
+            'id': 'preview',
+            'status': 'ready',
+            'content': '## Итог',
+            'navigation': [],
+            'error': null,
+          });
+        }),
+      );
+      addTearDown(api.close);
+      final session = TemplatePreviewSession(api);
+      addTearDown(session.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TemplatePreviewPage(api: api, input: input(), session: session),
+        ),
+      );
+      await tester.enterText(
+        find.byType(TextField),
+        'Текст для нескольких проверок',
+      );
+      await tester.tap(find.text('Протестировать'));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      accept.complete(
+        response({
+          'id': 'preview',
+          'status': 'queued',
+          'content': null,
+          'navigation': [],
+          'error': null,
+        }, 202),
+      );
+      await tester.pump();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TemplatePreviewPage(
+            api: api,
+            input: TemplateInput(
+              name: 'Изменённый',
+              sections: input().sections,
+            ),
+            session: session,
+          ),
+        ),
+      );
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'Текст для нескольких проверок',
+      );
+      expect(session.preview!.id, 'preview');
+      expect(posts, 1);
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+      expect(session.preview!.status, 'ready');
+      expect(find.text('Результат предыдущего теста'), findsOneWidget);
+      expect(posts, 1);
+      await tester.pumpWidget(const SizedBox());
     },
   );
 }
