@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.errors import fail
 from app.api.summary_variants import prepare, validate_source
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.db.variant_models import SummarySelection, SummaryCandidate
 from app.integrations.ollama import get_generator
 from app.schemas import GenerationOptionsInput, NavigationHeading, ProcessingError
@@ -68,7 +68,7 @@ def create_preview(body: PreviewInput, tasks: BackgroundTasks,
     params["focus_areas"] = sorted(params["focus_areas"])
     request_hash = fingerprint(params)
     key = "preview:" + (idempotency_key or str(uuid4()))
-    session = db.scalar(select(SummarySelection).where(SummarySelection.user_id == TEST_USER_ID,
+    session = db.scalar(select(SummarySelection).where(SummarySelection.user_id == current_user_id(db),
         SummarySelection.idempotency_key == key))
     if session:
         if session.request_hash != request_hash:
@@ -78,7 +78,7 @@ def create_preview(body: PreviewInput, tasks: BackgroundTasks,
         db.commit()
         return result
     check_capacity(db)
-    open_previews = list(db.scalars(select(SummarySelection).where(SummarySelection.user_id == TEST_USER_ID,
+    open_previews = list(db.scalars(select(SummarySelection).where(SummarySelection.user_id == current_user_id(db),
         SummarySelection.kind == "preview", SummarySelection.status == "open").order_by(SummarySelection.created_at)))
     if len(open_previews) >= 20:
         for old in open_previews:
@@ -89,7 +89,7 @@ def create_preview(body: PreviewInput, tasks: BackgroundTasks,
                 break
         else:
             fail(429, "generation_busy", "Дождитесь окончания предыдущих тестов.")
-    session = SummarySelection(user_id=TEST_USER_ID, kind="preview", idempotency_key=key,
+    session = SummarySelection(user_id=current_user_id(db), kind="preview", idempotency_key=key,
         request_hash=request_hash, source_text=body.text, source_hash=hashlib.sha256(body.text.encode()).hexdigest(),
         owns_transcript=False, title=None, folder_ids=[], expires_at=now()+PREVIEW_TTL)
     db.add(session)

@@ -1,10 +1,22 @@
 """One Uvicorn process on loopback plus an explicit private LAN address."""
 import argparse
 from contextlib import ExitStack
-from ipaddress import IPv4Address
+from ipaddress import IPv4Address, ip_network
 import socket
 
 import uvicorn
+from app.core.config import settings
+
+
+def validated_proxy_ips():
+    values = []
+    for value in settings.trusted_proxy_ips:
+        address = value.strip()
+        network = ip_network(address, strict=False)
+        if network.prefixlen == 0:
+            raise ValueError("All-address proxy trust is forbidden")
+        values.append(address)
+    return values
 
 
 def main():
@@ -24,7 +36,12 @@ def main():
             listener.bind((host, args.port))
             listener.listen(128)
             sockets.append(listener)
-        server = uvicorn.Server(uvicorn.Config("app.main:app", port=args.port, log_level="info"))
+        try:
+            proxies = validated_proxy_ips()
+        except ValueError:
+            parser.error("Explicit trusted proxy IPs required; wildcard is forbidden")
+        server = uvicorn.Server(uvicorn.Config("app.main:app", port=args.port, log_level="info",
+            forwarded_allow_ips=proxies, proxy_headers=True))
         server.run(sockets=sockets)
 
 

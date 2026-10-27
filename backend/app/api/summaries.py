@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import owned_folder, owned_summary, owned_transcript, validate_folders
 from app.db.models import Summary, SummaryFolder, Transcript
 from app.services.deletion import cleanup_transcript, lock_user_data
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.services.template_rendering import navigation
 from app.services.variants import summary_version
 from app.schemas import FolderAssignment, SummaryEdit, SummaryList, SummaryOut
@@ -27,7 +27,7 @@ def summary_response(db, item):
 @router.get("", response_model=SummaryList)
 def list_summaries(folder_id: UUID | None = None, limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0), db: Session = Depends(get_db)):
-    query = select(Summary).where(Summary.user_id == TEST_USER_ID)
+    query = select(Summary).where(Summary.user_id == current_user_id(db))
     if folder_id is not None:
         owned_folder(db, folder_id)
         query = query.join(SummaryFolder, SummaryFolder.summary_id == Summary.id).where(SummaryFolder.folder_id == folder_id)

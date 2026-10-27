@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import owned_folder
 from app.db.models import Folder
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.schemas import FolderInput, FolderNode, FolderOut, FolderRename, FolderTree
 from app.services.deletion import lock_user_data
 from app.services.folders import delete_folder_tree
@@ -20,7 +20,7 @@ def create_folder(body: FolderInput, db: Session = Depends(get_db)):
     lock_user_data(db)
     if body.parent_id is not None:
         owned_folder(db, body.parent_id)
-    item = Folder(user_id=TEST_USER_ID, name=body.name, parent_id=body.parent_id)
+    item = Folder(user_id=current_user_id(db), name=body.name, parent_id=body.parent_id)
     db.add(item)
     db.commit()
     return item
@@ -28,7 +28,7 @@ def create_folder(body: FolderInput, db: Session = Depends(get_db)):
 
 @router.get("", response_model=FolderTree)
 def folder_tree(db: Session = Depends(get_db)):
-    rows = db.scalars(select(Folder).where(Folder.user_id == TEST_USER_ID).order_by(Folder.name, Folder.id)).all()
+    rows = db.scalars(select(Folder).where(Folder.user_id == current_user_id(db)).order_by(Folder.name, Folder.id)).all()
     nodes = {row.id: FolderNode.model_validate(row) for row in rows}
     roots = []
     for row in rows:

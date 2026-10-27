@@ -31,6 +31,7 @@ class Config:
     asr_enabled: bool = True
     asr_home: Path | None = None
     asr_timeout: int = 180
+    auth_issues: tuple[str, ...] = ()
 
     @property
     def python(self):
@@ -245,11 +246,13 @@ class System:
                 health = client.get("/health")
                 schema = client.get("/openapi.json")
                 folders = client.get("/api/v1/folders")
+                # A deliberately invalid credential must reach auth's DB lookup;
+                # this checks backend DB access without a real user or secret.
+                auth = client.get("/api/v1/auth/me", headers={"Authorization":"Bearer local-readiness-invalid-token"})
                 return (health.status_code == 200 and health.json().get("status") == "ok"
-                    and schema.status_code == 200 and schema.json()["info"]["title"] == "YourMettings"
-                    and "/api/v1/transcripts/process" in schema.json()["paths"]
-                    and "/api/v1/audio-sessions" in schema.json()["paths"]
-                    and folders.status_code == 200 and isinstance(folders.json().get("items"), list))
+                    and schema.status_code == 401 and schema.json()["error"]["code"] == "authentication_required"
+                    and folders.status_code == 401 and folders.json()["error"]["code"] == "authentication_required"
+                    and auth.status_code == 401 and auth.json()["error"]["code"] == "invalid_access_token")
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             return False
 
@@ -355,7 +358,9 @@ class Launcher:
             raise LaunchError("Сеть", "Backend не слушает оба настроенных локальных адреса.",
                 "Проверьте способ запуска backend; ожидается один процесс app.run с --lan-host.")
         print("\nГОТОВО: PostgreSQL, Ollama, ASR (если включён) и backend проверены.", flush=True)
-        print("ПК: http://127.0.0.1:8000/docs", flush=True)
+        for issue in self.config.auth_issues:
+            print("Внимание — авторизация: " + issue, flush=True)
+        print("ПК: http://127.0.0.1:8000/api/v1 (требуется вход; OpenAPI также защищён)", flush=True)
         print(f"Телефон (LAN): http://{self.config.lan_host}:8000/api/v1", flush=True)
         print("PID backend: " + ", ".join(str(pid) for pid in sorted({x["pid"] for x in listeners})), flush=True)
         print("Закрытие этого окна не останавливает серверы.", flush=True)
@@ -391,6 +396,12 @@ def load_config(args):
         from app.core.config import Settings
         from sqlalchemy.engine import make_url
         settings = Settings()
+        auth_issues = []
+        if len(settings.auth_secret.encode()) < 32:
+            auth_issues.append("AUTH_SECRET не настроен; запрос кода вернёт 503.")
+        if (not settings.smtp_host or not settings.smtp_from_email or settings.smtp_security not in ("ssl", "starttls")
+                or bool(settings.smtp_username) != bool(settings.smtp_password)):
+            auth_issues.append("SMTP не настроен полностью; письма не отправляются. См. docs/AUTH_MIGRATION.md.")
         if not (root / "backend/.env").is_file():
             raise ValueError("Missing configuration")
         database = make_url(settings.database_url)
@@ -401,7 +412,8 @@ def load_config(args):
             raise ValueError("Ollama must use a local API")
         return Config(root, settings.database_url, settings.ollama_base_url.rstrip("/"),
             settings.ollama_model, args.lan_host, args.postgres_service,
-            settings.asr_enabled, settings.asr_home, settings.asr_startup_timeout_seconds)
+            settings.asr_enabled, settings.asr_home, settings.asr_startup_timeout_seconds,
+            auth_issues=tuple(auth_issues))
     except Exception as exc:
         raise LaunchError("Конфигурация", "Не удалось прочитать корректную локальную конфигурацию приложения.",
             "Проверьте backend/.env, DATABASE_URL, OLLAMA_BASE_URL и OLLAMA_MODEL. Содержимое файла не выводится.") from exc

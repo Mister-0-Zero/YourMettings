@@ -3,9 +3,10 @@ import asyncio
 from contextlib import suppress
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
@@ -18,6 +19,8 @@ from app.api.templates import router as templates_router
 from app.api.template_previews import router as previews_router
 from app.api.summary_variants import router as variants_router
 from app.api.preview_examples import router as examples_router
+from app.api.auth import router as auth_router, get_current_user
+from app.core.http_security import RequestBoundary
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +34,12 @@ async def lifespan(app):
             await asyncio.sleep(60)
             def cleanup():
                 from sqlalchemy import text
-                from app.services.variants import expire_selections
+                from app.services.variants import expire_all_selections
+                from app.services.auth_maintenance import cleanup_auth_records
                 with get_session_factory().begin() as db:
                     db.execute(text("SET LOCAL lock_timeout = '2s'"))
-                    expire_selections(db)
+                    expire_all_selections(db)
+                    cleanup_auth_records(db)
             try:
                 await asyncio.to_thread(cleanup)
             except Exception:
@@ -49,22 +54,35 @@ async def lifespan(app):
                 await task
 
 
-app = FastAPI(title="YourMettings", version="0.1.0", lifespan=lifespan)
-app.include_router(transcripts_router, prefix="/api/v1")
-app.include_router(folders_router, prefix="/api/v1")
-app.include_router(summaries_router, prefix="/api/v1")
-app.include_router(audio_router, prefix="/api/v1")
-app.include_router(templates_router, prefix="/api/v1")
-app.include_router(previews_router, prefix="/api/v1")
-app.include_router(variants_router, prefix="/api/v1")
-app.include_router(examples_router, prefix="/api/v1")
+app = FastAPI(title="YourMettings", version="0.1.0", lifespan=lifespan,
+    docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(RequestBoundary)
+app.include_router(auth_router, prefix="/api/v1")
+for router in (transcripts_router, folders_router, summaries_router, audio_router,
+        templates_router, previews_router, variants_router, examples_router):
+    app.include_router(router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+
+
+@app.get("/openapi.json", include_in_schema=False, dependencies=[Depends(get_current_user)])
+def protected_openapi():
+    return app.openapi()
+
+
+@app.get("/docs", include_in_schema=False, dependencies=[Depends(get_current_user)])
+def protected_docs():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="YourMettings API")
+
+
+@app.get("/redoc", include_in_schema=False, dependencies=[Depends(get_current_user)])
+def protected_redoc():
+    return get_redoc_html(openapi_url="/openapi.json", title="YourMettings API")
 
 
 @app.exception_handler(HTTPException)
 async def http_error(request: Request, exc: HTTPException):
     detail = exc.detail if isinstance(exc.detail, dict) else {
         "code": "http_error", "message": str(exc.detail), "details": {}}
-    return JSONResponse(status_code=exc.status_code, content={"error": detail})
+    return JSONResponse(status_code=exc.status_code, content={"error": detail}, headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)

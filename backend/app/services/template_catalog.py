@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.api.errors import fail
-from app.db.session import TEST_USER_ID
+from app.db.session import current_user_id
 from app.db.template_models import SummaryTemplate
 from app.template_schemas import TemplateInput, TemplateOut
 
@@ -123,7 +123,7 @@ def seed_system_templates(db: Session):
 
 def accessible_template(db: Session, id: UUID, *, lock=False):
     query = select(SummaryTemplate).where(SummaryTemplate.id == id, or_(
-        SummaryTemplate.is_system.is_(True), SummaryTemplate.owner_user_id == TEST_USER_ID))
+        SummaryTemplate.is_system.is_(True), SummaryTemplate.owner_user_id == current_user_id(db)))
     if lock:
         query = query.with_for_update()
     item = db.scalar(query)

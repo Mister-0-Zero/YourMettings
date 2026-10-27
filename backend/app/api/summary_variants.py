@@ -10,7 +10,7 @@ from app.api.dependencies import owned_summary, owned_transcript, validate_folde
 from app.api.errors import fail
 from app.db.audio_models import AudioSession
 from app.db.models import Summary, SummaryFolder, Transcript
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.db.variant_models import SummarySelection, SummaryCandidate, CandidateRequest
 from app.integrations.ollama import get_generator
 from app.schemas import SummaryOut
@@ -60,7 +60,7 @@ def create_selection(body: SelectionInput, response: Response, idempotency_key: 
     parameters["folder_ids"] = sorted(parameters["folder_ids"])
     request_hash = fingerprint(parameters)
     key = "meeting:" + idempotency_key
-    existing = db.scalar(select(SummarySelection).where(SummarySelection.user_id == TEST_USER_ID,
+    existing = db.scalar(select(SummarySelection).where(SummarySelection.user_id == current_user_id(db),
         SummarySelection.idempotency_key == key))
     if existing:
         if existing.request_hash != request_hash:
@@ -72,7 +72,7 @@ def create_selection(body: SelectionInput, response: Response, idempotency_key: 
         db.commit()
         return result
     if db.scalar(select(func.count()).select_from(SummarySelection).where(
-        SummarySelection.user_id == TEST_USER_ID, SummarySelection.status == "open", SummarySelection.kind == "meeting")) >= 10:
+        SummarySelection.user_id == current_user_id(db), SummarySelection.status == "open", SummarySelection.kind == "meeting")) >= 10:
         fail(429, "selection_limit", "Завершите одну из открытых сессий выбора.")
     target = None
     owns_source = body.text is not None
@@ -81,7 +81,7 @@ def create_selection(body: SelectionInput, response: Response, idempotency_key: 
         source = owned_transcript(db, target.transcript_id, lock=True)
     elif body.audio_session_id is not None:
         audio = db.scalar(select(AudioSession).where(AudioSession.id == body.audio_session_id,
-            AudioSession.user_id == TEST_USER_ID).with_for_update())
+            AudioSession.user_id == current_user_id(db)).with_for_update())
         if audio is None:
             fail(404, "not_found", "Аудиосессия не найдена.")
         if audio.status != "ready_for_review" or audio.transcript_id is None:
@@ -99,7 +99,7 @@ def create_selection(body: SelectionInput, response: Response, idempotency_key: 
             fail(409, "audio_review_required", "Для аудио используйте audio_session_id с подтверждением проверки.")
     else:
         validate_source(body.text)
-        source = Transcript(owner_user_id=TEST_USER_ID, text=body.text,
+        source = Transcript(owner_user_id=current_user_id(db), text=body.text,
             source_hash=hashlib.sha256(body.text.encode()).hexdigest())
         db.add(source)
         db.flush()
@@ -111,7 +111,7 @@ def create_selection(body: SelectionInput, response: Response, idempotency_key: 
             fail(409, "summary_exists", "Встреча уже сохранена; откройте выбор по summary_id.")
         guard_source_selection(db, source.id)
         validate_folders(db, body.folder_ids)
-    item = SummarySelection(user_id=TEST_USER_ID, kind="meeting", idempotency_key=key,
+    item = SummarySelection(user_id=current_user_id(db), kind="meeting", idempotency_key=key,
         request_hash=request_hash, transcript_id=source.id, source_transcript_id=source.id,
         source_text=source.text, source_hash=hashlib.sha256(source.text.encode()).hexdigest(),
         summary_id=target.id if target else None, base_version=summary_version(target) if target else None,
@@ -223,7 +223,7 @@ def accept_selection(id: UUID, body: AcceptCandidate, db: Session = Depends(get_
         if db.scalar(select(Summary.id).where(Summary.transcript_id == source.id)):
             fail(409, "summary_version_conflict", "Для источника уже сохранён результат.")
         validate_folders(db, item.folder_ids)
-        result = Summary(user_id=TEST_USER_ID, transcript_id=source.id, title=item.title, content=candidate.content)
+        result = Summary(user_id=current_user_id(db), transcript_id=source.id, title=item.title, content=candidate.content)
         db.add(result)
         db.flush()
         db.add_all(SummaryFolder(summary_id=result.id, folder_id=fid) for fid in item.folder_ids)

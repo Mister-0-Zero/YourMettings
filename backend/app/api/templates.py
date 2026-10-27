@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.db.template_models import SummaryTemplate
 from app.services.template_catalog import accessible_template, owned_template
 from app.template_schemas import TemplateCopyInput, TemplateInput, TemplateList, TemplateOut
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/summary-templates", tags=["summary-templates"])
 @router.get("", response_model=TemplateList)
 def list_templates(db: Session = Depends(get_db)):
     rows = db.scalars(select(SummaryTemplate).where(or_(
-        SummaryTemplate.is_system.is_(True), SummaryTemplate.owner_user_id == TEST_USER_ID
+        SummaryTemplate.is_system.is_(True), SummaryTemplate.owner_user_id == current_user_id(db)
     )).order_by(SummaryTemplate.is_default.desc(), SummaryTemplate.is_system.desc(),
         SummaryTemplate.name, SummaryTemplate.id)).all()
     return TemplateList(items=[TemplateOut.model_validate(row) for row in rows])
@@ -23,7 +23,7 @@ def list_templates(db: Session = Depends(get_db)):
 
 @router.post("", response_model=TemplateOut, status_code=201)
 def create_template(body: TemplateInput, db: Session = Depends(get_db)):
-    item = SummaryTemplate(**body.model_dump(mode="json"), owner_user_id=TEST_USER_ID)
+    item = SummaryTemplate(**body.model_dump(mode="json"), owner_user_id=current_user_id(db))
     db.add(item)
     db.commit()
     return item
@@ -56,7 +56,7 @@ def copy_template(id: UUID, body: TemplateCopyInput = TemplateCopyInput(), db: S
     source = accessible_template(db, id, lock=True)
     data = TemplateOut.model_validate(source).model_dump(mode="json", include=set(TemplateInput.model_fields))
     data["name"] = body.name or (source.name[:191] + " (копия)")
-    item = SummaryTemplate(**data, owner_user_id=TEST_USER_ID)
+    item = SummaryTemplate(**data, owner_user_id=current_user_id(db))
     db.add(item)
     db.commit()
     return item

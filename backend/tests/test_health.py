@@ -10,4 +10,5 @@ def test_health(monkeypatch):
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
-        assert "/health" in client.get("/openapi.json").json()["paths"]
+        assert client.get("/openapi.json").status_code == 401
+        assert "/health" in app.openapi()["paths"]

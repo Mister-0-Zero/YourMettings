@@ -13,7 +13,7 @@ from app.api.errors import fail
 from app.core.config import settings
 from app.db.models import Transcript, Summary
 from app.db.audio_models import AudioSession
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.schemas import TranscriptInput, TranscriptOut, ProcessInput, ProcessingOut, CreateProcessInput
 from app.integrations.ollama import OllamaGenerator, get_generator
 from app.services.processing import processing_response, run_processing
@@ -41,19 +41,19 @@ def create_transcript(body: TranscriptInput, response: Response,
     check_size(body.text)
     digest = hashlib.sha256(body.text.encode("utf-8")).hexdigest()
     if idempotency_key is not None:
-        stmt = insert(Transcript).values(owner_user_id=TEST_USER_ID, text=body.text,
+        stmt = insert(Transcript).values(owner_user_id=current_user_id(db), text=body.text,
             idempotency_key=idempotency_key, source_hash=digest,
             processing_status="not_started", processing_attempt=0).on_conflict_do_nothing(
                 index_elements=[Transcript.owner_user_id, Transcript.idempotency_key]).returning(Transcript)
         item = db.scalar(stmt)
         if item is None:
             item = db.scalar(select(Transcript).where(
-                Transcript.owner_user_id == TEST_USER_ID, Transcript.idempotency_key == idempotency_key))
+                Transcript.owner_user_id == current_user_id(db), Transcript.idempotency_key == idempotency_key))
             if item.request_hash is not None or item.source_hash != digest:
                 fail(409, "idempotency_conflict", "Ключ уже использован для другого текста.")
             response.status_code = 200
     else:
-        item = Transcript(owner_user_id=TEST_USER_ID, text=body.text, source_hash=digest)
+        item = Transcript(owner_user_id=current_user_id(db), text=body.text, source_hash=digest)
         db.add(item)
     db.commit()
     return transcript_response(item, db)
@@ -62,6 +62,8 @@ def create_transcript(body: TranscriptInput, response: Response,
 def accept_processing(db, item, body, generator):
     from app.services.variants import guard_source_selection
     guard_source_selection(db, item.id)
+    from app.services.variants import check_capacity
+    check_capacity(db)
     validate_folders(db, body.folder_ids)
     if isinstance(generator, OllamaGenerator) and not generator.model:
         fail(503, "llm_not_configured", "На сервере не задан тег модели.")
@@ -108,7 +110,7 @@ def create_and_process(body: CreateProcessInput, tasks: BackgroundTasks,
         parameters["generation_options"] = options
     canonical = json.dumps(parameters, ensure_ascii=False, sort_keys=True)
     request_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    values = dict(owner_user_id=TEST_USER_ID, text=body.text, source_hash=source_hash,
+    values = dict(owner_user_id=current_user_id(db), text=body.text, source_hash=source_hash,
         request_hash=request_hash, idempotency_key=idempotency_key,
         processing_status="not_started", processing_attempt=0)
     if idempotency_key is not None:
@@ -117,7 +119,7 @@ def create_and_process(body: CreateProcessInput, tasks: BackgroundTasks,
             index_elements=[Transcript.owner_user_id, Transcript.idempotency_key]).returning(Transcript)
         item = db.scalar(stmt)
         if item is None:
-            item = db.scalar(select(Transcript).where(Transcript.owner_user_id == TEST_USER_ID,
+            item = db.scalar(select(Transcript).where(Transcript.owner_user_id == current_user_id(db),
                 Transcript.idempotency_key == idempotency_key))
             if item.request_hash != request_hash:
                 fail(409, "idempotency_conflict", "Ключ уже использован для другого запроса.")
@@ -159,7 +161,7 @@ def process_transcript(id: UUID, body: ProcessInput, response: Response,
         fail(409, "audio_review_required", "Подтвердите проверенный текст через аудиосессию перед Qwen.")
     if item.processing_status == "summarizing":
         return processing_response(db, item)
-    existing = db.scalar(select(Summary.id).where(Summary.transcript_id == id, Summary.user_id == TEST_USER_ID))
+    existing = db.scalar(select(Summary.id).where(Summary.transcript_id == id, Summary.user_id == current_user_id(db)))
     if existing is not None:
         response.status_code = 200
         return processing_response(db, item)

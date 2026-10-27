@@ -3,13 +3,21 @@ from functools import lru_cache
 from uuid import UUID
 
 from sqlalchemy import create_engine, update
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.db.models import Transcript, User
 
 TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+def current_user_id(db):
+    """Identity set only by validated auth or an explicit internal job scope."""
+    identity = db.info.get("user_id")
+    if not isinstance(identity, UUID):
+        from app.api.errors import fail
+        fail(401, "authentication_required", "Требуется вход в аккаунт.")
+    return identity
 
 
 @lru_cache
@@ -27,9 +35,6 @@ def get_db() -> Iterator[Session]:
 
 def initialize_database(factory):
     with factory.begin() as db:
-        db.execute(insert(User).values(
-            id=TEST_USER_ID, email="test@yourmettings.local", password_hash="!disabled"
-        ).on_conflict_do_nothing(index_elements=[User.id]))
         from app.services.template_catalog import seed_system_templates
         seed_system_templates(db)
         from app.services.variants import initialize_variants

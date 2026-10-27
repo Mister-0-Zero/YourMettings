@@ -4,10 +4,11 @@ import hashlib
 from sqlalchemy import and_, column, select, table, text
 
 from app.db.models import Summary, Transcript
-from app.db.session import TEST_USER_ID
+from app.db.session import current_user_id
 
 
-def lock_user_data(db, user_id=TEST_USER_ID):
+def lock_user_data(db, user_id=None):
+    user_id = user_id if user_id is not None else current_user_id(db)
     # Serialize tree/placement mutations with worker persistence. No LLM call
     # occurs while this transaction-scoped PostgreSQL lock is held.
     key = int.from_bytes(hashlib.sha256(f"yourmettings:{user_id}".encode()).digest()[:8], "big", signed=True)
@@ -50,6 +51,9 @@ def has_references(db, target, ids, *, ignored=frozenset()):
 
 def cleanup_transcript(db, transcript):
     db.flush()
+    # Owning a derived summary never grants rights to mutate another user's source.
+    if transcript.owner_user_id != current_user_id(db):
+        return False
     if transcript.processing_status == "summarizing":
         return False
     transcript.processing_status = "not_started"

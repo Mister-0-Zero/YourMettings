@@ -45,4 +45,6 @@ def test_migration_round_trip(database):
     command.upgrade(cfg, "head")
     initialize_database(database)
     with database() as db:
-        assert db.get(User, TEST_USER_ID).email == "test@yourmettings.local"
+        # A fresh installation must never recreate an accessible shared identity.
+        assert db.get(User, TEST_USER_ID) is None
+        assert db.scalars(select(User)).all() == []

@@ -68,6 +68,11 @@ def test_summary_validation_and_foreign_folders(client, database):
 def test_api_contract_endpoint_inventory(client):
     paths = client.get("/openapi.json").json()["paths"]
     expected = {
+        "/api/v1/auth/request-code": {"post"},
+        "/api/v1/auth/verify-code": {"post"},
+        "/api/v1/auth/refresh": {"post"},
+        "/api/v1/auth/logout": {"post"},
+        "/api/v1/auth/me": {"get"},
         "/api/v1/audio-sessions": {"post"},
         "/api/v1/audio-sessions/{id}": {"get", "delete"},
         "/api/v1/audio-sessions/{id}/chunks": {"post"},

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    CheckConstraint, DateTime, ForeignKey, Integer, String, Text,
+    Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text,
     UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
@@ -17,8 +17,11 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(320), unique=True)
-    # No login exists in MVP. This marker cannot be used as a password hash.
+    # Password login is disabled; authentication uses email codes.
     password_hash: Mapped[str] = mapped_column(Text, default="!disabled")
+    role: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    legacy_claim_pending: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class Folder(Base):

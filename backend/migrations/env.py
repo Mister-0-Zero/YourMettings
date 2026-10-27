@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 
 from app.core.config import settings
 from app.db.models import Base
+from app import auth_models
 from app.db import variant_models
 from app.db import template_models
 from app.db import audio_models  # Register audio metadata for Alembic checks.

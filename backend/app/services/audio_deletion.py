@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.errors import fail
 from app.db.audio_models import AudioChunk, AudioSession, AudioSessionDeletion
 from app.db.models import Transcript
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.services.audio_files import cleanup_session_files
 from app.services.deletion import has_external_references, has_references, lock_user_data
 
@@ -22,6 +22,9 @@ def upload_lock_key(session_id):
 
 async def guard_audio_upload(id: UUID, db: Session = Depends(get_db)):
     """Shared session lock spans HTTP staging/validation, but no DB transaction."""
+    from app.services.audio import owned_session
+    owned_session(db, id)
+    db.commit()
     connection = await run_in_threadpool(db.get_bind().connect)
     key = upload_lock_key(id)
     def acquire():
@@ -49,11 +52,11 @@ def delete_unconfirmed_session(db, session_id, *, confirm):
         fail(422, "confirmation_required", "Подтвердите удаление аудиовстречи.")
     lock_user_data(db)
     receipt = db.scalar(select(AudioSessionDeletion).where(
-        AudioSessionDeletion.session_id == session_id, AudioSessionDeletion.user_id == TEST_USER_ID))
+        AudioSessionDeletion.session_id == session_id, AudioSessionDeletion.user_id == current_user_id(db)))
     if receipt is not None:
         return
     item = db.scalar(select(AudioSession).where(AudioSession.id == session_id,
-        AudioSession.user_id == TEST_USER_ID).with_for_update())
+        AudioSession.user_id == current_user_id(db)).with_for_update())
     if item is None:
         fail(404, "not_found", "Аудиосессия не найдена.")
     if item.status != "ready_for_review":
@@ -63,7 +66,7 @@ def delete_unconfirmed_session(db, session_id, *, confirm):
     source = db.scalar(select(Transcript).where(Transcript.id == item.transcript_id).with_for_update())
     chunks = list(db.scalars(select(AudioChunk).where(AudioChunk.session_id == session_id)
         .order_by(AudioChunk.sequence_number).with_for_update()))
-    if (source is None or source.owner_user_id != TEST_USER_ID or source.processing_status != "not_started"
+    if (source is None or source.owner_user_id != current_user_id(db) or source.processing_status != "not_started"
         or source.processing_attempt != 0 or source.first_processed_at is not None
         or source.idempotency_key is not None or source.request_hash is not None
         or not item.expected_chunk_count or len(chunks) != item.expected_chunk_count

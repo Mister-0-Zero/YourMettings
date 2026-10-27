@@ -3,12 +3,12 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.api.errors import fail
 from app.core.config import settings
 from app.db.models import Transcript
-from app.db.session import TEST_USER_ID
+from app.db.session import current_user_id
 from app.db.variant_models import SummarySelection, SummaryCandidate
 from app.integrations.ollama import LLMError
 from app.schemas import ProcessingError
@@ -64,12 +64,12 @@ def clear_selection(db, item, status, *, selected_id=None):
 def expire_selections(db):
     lock_user_data(db)
     rows = list(db.scalars(select(SummarySelection).where(SummarySelection.status == "open",
-        SummarySelection.expires_at <= now(), SummarySelection.user_id == TEST_USER_ID).with_for_update()))
+        SummarySelection.expires_at <= now(), SummarySelection.user_id == current_user_id(db)).with_for_update()))
     for item in rows:
         clear_selection(db, item, "expired")
     # Also cover a lost callback after the acceptance commit without requiring restart.
     overdue = select(SummaryCandidate.id).join(SummarySelection).where(
-        SummarySelection.user_id == TEST_USER_ID, SummarySelection.status == "open",
+        SummarySelection.user_id == current_user_id(db), SummarySelection.status == "open",
         SummaryCandidate.status.in_(["queued", "generating"]),
         SummaryCandidate.created_at <= now()-JOB_DEADLINE)
     db.execute(update(SummaryCandidate).where(SummaryCandidate.id.in_(overdue))
@@ -77,14 +77,30 @@ def expire_selections(db):
 
 
 def initialize_variants(db):
-    expire_selections(db)
+    expire_all_selections(db)
     db.execute(update(SummaryCandidate).where(SummaryCandidate.status.in_(["queued", "generating"]))
         .values(status="error", error_code="processing_interrupted", completed_at=now()))
 
 
+def expire_all_selections(db):
+    """Internal maintenance only: visit each tenant with its own mutation lock."""
+    previous = db.info.get("user_id")
+    owners = db.scalars(select(SummarySelection.user_id).where(
+        SummarySelection.status == "open").distinct().order_by(SummarySelection.user_id)).all()
+    try:
+        for owner in owners:
+            db.info["user_id"] = owner
+            expire_selections(db)
+    finally:
+        if previous is None:
+            db.info.pop("user_id", None)
+        else:
+            db.info["user_id"] = previous
+
+
 def source_has_open_selection(db, transcript_id):
     return db.scalar(select(SummarySelection.id).where(SummarySelection.transcript_id == transcript_id,
-        SummarySelection.user_id == TEST_USER_ID, SummarySelection.status == "open",
+        SummarySelection.user_id == current_user_id(db), SummarySelection.status == "open",
         SummarySelection.expires_at > now()).limit(1)) is not None
 
 
@@ -94,7 +110,7 @@ def guard_source_selection(db, transcript_id):
 
 
 def owned_selection(db, id, *, lock=False):
-    query = select(SummarySelection).where(SummarySelection.id == id, SummarySelection.user_id == TEST_USER_ID)
+    query = select(SummarySelection).where(SummarySelection.id == id, SummarySelection.user_id == current_user_id(db))
     item = db.scalar(query.with_for_update() if lock else query)
     if item is None:
         fail(404, "not_found", "Сессия выбора не найдена.")
@@ -132,9 +148,11 @@ def selection_response(db, item):
 
 def check_capacity(db):
     active = list(db.scalars(select(SummaryCandidate.id).join(SummarySelection).where(
-        SummarySelection.user_id == TEST_USER_ID, SummarySelection.status == "open",
+        SummarySelection.user_id == current_user_id(db), SummarySelection.status == "open",
         SummaryCandidate.status.in_(["queued", "generating"])).limit(MAX_ACTIVE_JOBS)))
-    if len(active) >= MAX_ACTIVE_JOBS:
+    classic = db.scalar(select(func.count()).select_from(Transcript).where(
+        Transcript.owner_user_id == current_user_id(db), Transcript.processing_status == "summarizing"))
+    if len(active) + classic >= MAX_ACTIVE_JOBS:
         fail(429, "generation_busy", "Уже выполняются две генерации. Дождитесь завершения.")
 
 
@@ -144,8 +162,15 @@ class CandidateCancelled(Exception):
 
 def run_candidate(factory, candidate_id, generator):
     attempt = None
+    with factory() as lookup:
+        candidate = lookup.get(SummaryCandidate, candidate_id)
+        selection = lookup.get(SummarySelection, candidate.selection_id) if candidate else None
+        if selection is None:
+            return
+        owner_id = selection.user_id
     try:
         with factory.begin() as db:
+            db.info["user_id"] = owner_id
             lock_user_data(db)
             candidate = db.get(SummaryCandidate, candidate_id)
             if candidate is None or candidate.status != "queued":
@@ -161,6 +186,7 @@ def run_candidate(factory, candidate_id, generator):
 
         def progress(metadata=None):
             with factory.begin() as db:
+                db.info["user_id"] = owner_id
                 lock_user_data(db)
                 candidate = db.get(SummaryCandidate, candidate_id)
                 if candidate is None or candidate.status != "generating" or candidate.attempt != attempt:
@@ -181,6 +207,7 @@ def run_candidate(factory, candidate_id, generator):
         if not isinstance(content, str) or not content.strip():
             raise LLMError("llm_invalid_response")
         with factory.begin() as db:
+            db.info["user_id"] = owner_id
             lock_user_data(db)
             candidate = db.get(SummaryCandidate, candidate_id)
             if candidate is None or candidate.status != "generating" or candidate.attempt != attempt:
@@ -198,6 +225,7 @@ def run_candidate(factory, candidate_id, generator):
     except Exception as exc:
         code = exc.code if isinstance(exc, LLMError) else "processing_failed"
         with factory.begin() as db:
+            db.info["user_id"] = owner_id
             lock_user_data(db)
             candidate = db.get(SummaryCandidate, candidate_id)
             if candidate is None or candidate.status not in ("queued", "generating") or (attempt is not None and candidate.attempt != attempt):

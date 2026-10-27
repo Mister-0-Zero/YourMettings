@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.db.models import Summary, SummaryFolder, Transcript
-from app.db.session import TEST_USER_ID
+from app.db.session import current_user_id
 from app.integrations.ollama import LLMError, SummaryGenerator
 from app.schemas import ProcessingError, ProcessingOut
 from app.services.deletion import lock_user_data
@@ -25,7 +25,7 @@ ERROR_MESSAGES = {
 
 def processing_response(db, item):
     summary_id = db.scalar(select(Summary.id).where(
-        Summary.transcript_id == item.id, Summary.user_id == TEST_USER_ID))
+        Summary.transcript_id == item.id, Summary.user_id == current_user_id(db)))
     error = None
     if item.error_code:
         error = ProcessingError(code=item.error_code,
@@ -35,6 +35,7 @@ def processing_response(db, item):
 
 
 def run_processing(factory, transcript_id: UUID, attempt: int, generator: SummaryGenerator):
+    owner_id = None
     try:
         # Snapshot and close the transaction before any model/network work.
         with factory() as db:
@@ -42,17 +43,19 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
             if item is None or item.processing_attempt != attempt or item.processing_status != "summarizing":
                 return
             source = item.text
+            owner_id = item.owner_user_id
             options = dict(item.processing_options)
         with gpu_slot(factory, enabled=settings.asr_gpu_serial):
             content = generator.generate(source, options=options)
         if not isinstance(content, str) or not content.strip():
             raise LLMError("llm_invalid_response")
         with factory.begin() as db:
+            db.info["user_id"] = owner_id
             lock_user_data(db)
             item = db.scalar(select(Transcript).where(Transcript.id == transcript_id).with_for_update())
-            if item is None or item.processing_attempt != attempt or item.processing_status != "summarizing":
+            if item is None or item.owner_user_id != owner_id or item.processing_attempt != attempt or item.processing_status != "summarizing":
                 return
-            result = Summary(user_id=TEST_USER_ID, transcript_id=item.id,
+            result = Summary(user_id=current_user_id(db), transcript_id=item.id,
                 title=item.processing_title, content=content, template_snapshot=options.get("template_snapshot"),
                 generation_options={k: v for k, v in options.items() if k != "template_snapshot"})
             db.add(result)
@@ -71,7 +74,7 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
         try:
             with factory.begin() as db:
                 item = db.scalar(select(Transcript).where(Transcript.id == transcript_id).with_for_update())
-                if item and item.processing_attempt == attempt and item.processing_status == "summarizing":
+                if item and item.owner_user_id == owner_id and item.processing_attempt == attempt and item.processing_status == "summarizing":
                     item.processing_status = "error"
                     item.error_code = code
                     item.processing_title = None

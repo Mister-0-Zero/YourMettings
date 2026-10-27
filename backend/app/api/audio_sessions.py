@@ -5,7 +5,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
@@ -15,7 +15,7 @@ from app.api.transcripts import accept_processing, commit_and_schedule
 from app.audio_schemas import AudioSessionInput, AudioComplete, AudioConfirm, AudioRetry, AudioSessionOut, AudioChunkAccepted
 from app.core.config import settings
 from app.db.audio_models import AudioChunk, AudioSession, AudioSessionDeletion
-from app.db.session import TEST_USER_ID, get_db
+from app.db.session import current_user_id, get_db
 from app.integrations.ollama import get_generator
 from app.schemas import ProcessingOut
 from app.services.audio import owned_session, session_response, duplicate_chunk, chunk_response, assemble
@@ -41,19 +41,23 @@ def create(body: AudioSessionInput, response: Response,
     digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     if idempotency_key:
         deleted = db.scalar(select(AudioSessionDeletion).where(
-            AudioSessionDeletion.user_id == TEST_USER_ID, AudioSessionDeletion.idempotency_key == idempotency_key))
+            AudioSessionDeletion.user_id == current_user_id(db), AudioSessionDeletion.idempotency_key == idempotency_key))
         if deleted:
             if deleted.request_hash != digest:
                 fail(409, "idempotency_conflict", "Ключ уже использован для другого запроса.")
             fail(410, "audio_session_deleted", "Эта аудиовстреча намеренно удалена; начните новую запись с новым ключом.")
-        existing = db.scalar(select(AudioSession).where(AudioSession.user_id == TEST_USER_ID, AudioSession.idempotency_key == idempotency_key))
+        existing = db.scalar(select(AudioSession).where(AudioSession.user_id == current_user_id(db), AudioSession.idempotency_key == idempotency_key))
         if existing:
             if existing.request_hash != digest:
                 fail(409, "idempotency_conflict", "Ключ аудиосессии уже использован для других параметров.")
             response.status_code = 200
             return session_response(db, existing)
     validate_folders(db, body.folder_ids)
-    item = AudioSession(user_id=TEST_USER_ID, request_data=params, request_hash=digest, idempotency_key=idempotency_key)
+    active = db.scalar(select(func.count()).select_from(AudioSession).where(
+        AudioSession.user_id == current_user_id(db), AudioSession.status.in_(("recording", "transcribing", "failed"))))
+    if active >= settings.audio_max_active_sessions_per_user:
+        fail(429, "audio_capacity_exceeded", "Завершите активную запись или обработку перед созданием новой.")
+    item = AudioSession(user_id=current_user_id(db), request_data=params, request_hash=digest, idempotency_key=idempotency_key)
     db.add(item)
     db.commit()
     return session_response(db, item)
@@ -84,8 +88,10 @@ async def upload(id: UUID, request: Request, response: Response,
     overlap_ms: int = Query(0, ge=0, le=10000), duration_ms: int | None = Query(None, gt=0),
     content_sha256: str | None = Query(None, pattern="^[0-9a-f]{64}$"), db: Session = Depends(get_db)):
     factory = sessionmaker(db.get_bind(), expire_on_commit=False)
+    user_id = current_user_id(db)
     def check_owner():
         with factory() as session:
+            session.info["user_id"] = user_id
             owned_session(session, id)
     await run_in_threadpool(check_owner)
     if sequence_number >= settings.audio_max_chunks or overlap_ms > settings.audio_max_overlap_ms:
@@ -109,6 +115,7 @@ async def upload(id: UUID, request: Request, response: Response,
         fail(422, "duration_mismatch", "Заявленная длительность не совпадает с декодированным аудио.")
     def persist():
         with factory.begin() as session:
+            session.info["user_id"] = user_id
             lock_user_data(session)
             item = owned_session(session, id, lock=True)
             existing = session.scalar(select(AudioChunk).where(AudioChunk.session_id == id, AudioChunk.sequence_number == sequence_number))
@@ -118,6 +125,11 @@ async def upload(id: UUID, request: Request, response: Response,
                 fail(409, "session_closed", "Итоговый транскрипт уже собран.")
             if item.expected_chunk_count is not None and sequence_number >= item.expected_chunk_count:
                 fail(409, "unexpected_chunk", "Номер не входит в заявленное количество фрагментов.")
+            pending_count, pending_bytes = session.execute(select(func.count(), func.coalesce(func.sum(AudioChunk.byte_count), 0))
+                .select_from(AudioChunk).join(AudioSession).where(AudioSession.user_id == user_id, AudioChunk.payload.is_not(None))).one()
+            if (pending_count >= settings.audio_max_pending_chunks_per_user
+                    or pending_bytes + size > settings.audio_max_pending_bytes_per_user):
+                fail(429, "audio_capacity_exceeded", "Очередь аудио заполнена. Сохраните фрагмент локально и повторите после ASR.")
             chunk = AudioChunk(session_id=id, sequence_number=sequence_number, start_ms=start_ms, overlap_ms=overlap_ms,
                 duration_ms=actual_ms, sha256=digest, byte_count=size, audio_format=fmt, payload=data)
             session.add(chunk)

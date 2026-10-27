@@ -10,12 +10,12 @@ from app.api.errors import fail
 from app.core.config import settings
 from app.db.audio_models import ASRWorkerState, AudioChunk, AudioSession
 from app.db.models import Transcript
-from app.db.session import TEST_USER_ID
+from app.db.session import current_user_id
 from app.services.processing import processing_response
 
 
 def owned_session(db, id, lock=False):
-    query = select(AudioSession).where(AudioSession.id == id, AudioSession.user_id == TEST_USER_ID)
+    query = select(AudioSession).where(AudioSession.id == id, AudioSession.user_id == current_user_id(db))
     item = db.scalar(query.with_for_update() if lock else query)
     if item is None:
         fail(404, "not_found", "Аудиосессия не найдена.")
