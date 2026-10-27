@@ -1,3 +1,7 @@
+import '../../api/api_error.dart';
+import '../../api/demo_connection.dart';
+import '../../services/recorder_context.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -17,7 +21,10 @@ import 'microphone_capture.dart';
 @pragma('vm:entry-point')
 void audioTaskEntry() => FlutterForegroundTask.setTaskHandler(_AudioTask());
 
-Future<AudioJournal> openAudioJournal() async {
+Future<AudioJournal> openAudioJournal({Directory? directory}) async {
+  if (directory != null) {
+    return AudioJournal(Directory('${directory.path}/active-audio'));
+  }
   final support = await getApplicationSupportDirectory();
   return AudioJournal(Directory('${support.path}/active-audio'));
 }
@@ -26,11 +33,15 @@ class _AudioTask extends TaskHandler {
   AudioEngine? engine;
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    final journal = await openAudioJournal();
+    final context = await readRecorderContext();
+    final journal = await openAudioJournal(directory: context.directory);
     engine = AudioEngine(
       journal,
-      AudioApi(AppConfig.apiBaseUri()),
-      changed: FlutterForegroundTask.sendDataToMain,
+      AudioApi(context.connection.base, connection: context.connection),
+      changed: (value) => FlutterForegroundTask.sendDataToMain({
+        ...value,
+        'connection_scope': context.connection.scopeId,
+      }),
       meterChanged: (peaks) => FlutterForegroundTask.sendDataToMain({
         'meter': [
           for (final peak in peaks) [peak.low, peak.high],
@@ -152,7 +163,9 @@ class _AudioTask extends TaskHandler {
 /// UI bridge. Android disk writes belong exclusively to the task isolate.
 /// iOS uses the actual record/AVAudioSession engine, not periodic background fetch.
 class RecorderCoordinator extends ChangeNotifier {
-  RecorderCoordinator();
+  RecorderCoordinator({this.connection, this.directory});
+  final DemoConnection? connection;
+  final Directory? directory;
   @visibleForTesting
   bool get usesAndroidService => Platform.isAndroid;
   Completer<void>? _firstSnapshot;
@@ -176,9 +189,10 @@ class RecorderCoordinator extends ChangeNotifier {
   final Map<int, Completer<bool>> _replies = {};
   bool busy = false;
   bool handoffPending = false;
+  bool _foreignOwner = false;
   String? error;
   String get phase => state['phase'] as String? ?? 'empty';
-  bool get active => !['empty', 'done'].contains(phase);
+  bool get active => _foreignOwner || !['empty', 'done'].contains(phase);
   Future<void> initialize() async {
     _poll?.cancel();
     if (usesAndroidService) {
@@ -231,6 +245,19 @@ class RecorderCoordinator extends ChangeNotifier {
       return;
     }
     if (value is Map) {
+      if (connection != null &&
+          value['connection_scope'] != connection!.scopeId) {
+        _foreignOwner = true;
+        final ready = _firstSnapshot;
+        if (ready != null && !ready.isCompleted) {
+          ready.completeError(
+            StateError(
+              'Другой профиль владеет текущей записью. Завершите её перед переключением.',
+            ),
+          );
+        }
+        return;
+      }
       state = Map<String, dynamic>.from(value);
       final ready = _firstSnapshot;
       if (ready != null && !ready.isCompleted) ready.complete();
@@ -240,11 +267,17 @@ class RecorderCoordinator extends ChangeNotifier {
 
   Future<void> _attachLocal() async {
     if (_local != null) return;
-    final journal = await openAudioJournal();
+    final journal = await openAudioJournal(directory: directory);
     _local = AudioEngine(
       journal,
-      AudioApi(AppConfig.apiBaseUri()),
-      changed: _receive,
+      AudioApi(
+        connection?.base ?? AppConfig.apiBaseUri(),
+        connection: connection,
+      ),
+      changed: (value) => _receive({
+        ...value,
+        if (connection != null) 'connection_scope': connection!.scopeId,
+      }),
       meterChanged: (peaks) {
         if (_meterVisible) meter.value = peaks;
       },
@@ -295,9 +328,13 @@ class RecorderCoordinator extends ChangeNotifier {
       }
       await _local?.dispose();
       _local = null;
-      final journal = await openAudioJournal();
-      final api = AudioApi(AppConfig.apiBaseUri());
+      final journal = await openAudioJournal(directory: directory);
+      final api = AudioApi(
+        connection?.base ?? AppConfig.apiBaseUri(),
+        connection: connection,
+      );
       try {
+        if (connection != null) await saveRecorderContext(connection!);
         await AudioEngine.prepare(journal, api, parameters);
       } finally {
         api.close();
@@ -336,8 +373,8 @@ class RecorderCoordinator extends ChangeNotifier {
       } else {
         await _attachLocal();
       }
-    } catch (_) {
-      error = 'Не удалось начать запись. Проверьте подключение к серверу и разрешения. Данные не удалены.';
+    } catch (e) {
+      error = e is ApiException ? e.message : 'Не удалось начать запись. Проверьте подключение к серверу и разрешения. Данные не удалены.';
       await _attachLocal();
     } finally {
       busy = false;
@@ -415,6 +452,18 @@ class RecorderCoordinator extends ChangeNotifier {
     } else {
       await _local?.sync(force: true);
     }
+  }
+
+  Future<void> detachIdle() async {
+    if (active || busy || handoffPending) {
+      throw StateError('Сначала завершите текущую запись.');
+    }
+    _poll?.cancel();
+    if (usesAndroidService && await FlutterForegroundTask.isRunningService) {
+      await FlutterForegroundTask.stopService();
+    }
+    await _local?.dispose();
+    _local = null;
   }
 
   @override

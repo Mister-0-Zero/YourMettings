@@ -1,3 +1,6 @@
+import '../features/settings/connection_page.dart';
+import '../api/demo_connection.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -108,6 +111,22 @@ class AppearancePage extends StatelessWidget {
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.all(24),
     children: [
+      if (ConnectionScope.maybeOf(context) case final settings?) ...[
+        Text('Подключение', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.dns_outlined),
+          title: Text(profileLabel(settings.profile)),
+          subtitle: Text(
+            settings.active?.base.toString() ??
+                settings.address(settings.profile),
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => openConnectionSettings(context, settings),
+        ),
+        const SizedBox(height: 20),
+      ],
       Text('Оформление', style: Theme.of(context).textTheme.headlineSmall),
       const SizedBox(height: 20),
       DropdownButtonFormField<ThemeMode>(
@@ -174,7 +193,11 @@ class AppearancePage extends StatelessWidget {
       const SizedBox(height: 28),
       Text('Тестовый профиль', style: Theme.of(context).textTheme.titleLarge),
       const SizedBox(height: 8),
-      const Text('Первая версия использует тестового пользователя сервера.'),
+      Text(
+        ConnectionScope.maybeOf(context) == null
+            ? 'Первая версия использует тестового пользователя сервера.'
+            : 'Демонстрационный режим — только тестовые данные. Все допущенные устройства видят общий демо-аккаунт.',
+      ),
     ],
   );
 }

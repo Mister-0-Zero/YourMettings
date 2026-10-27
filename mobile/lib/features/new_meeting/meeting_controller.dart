@@ -68,7 +68,7 @@ class MeetingController extends ChangeNotifier {
   String? folderError;
   String? storageError;
   Timer? _timer;
-  int _interval = 2;
+  Duration _pollDelay = const Duration(seconds: 2);
   bool _paused = false;
   bool _disposed = false;
   int _failures = 0;
@@ -230,15 +230,18 @@ class MeetingController extends ChangeNotifier {
       }
       if (status!.phase != ProcessingPhase.ready) result = null;
       _failures = 0;
+      _pollDelay = const Duration(seconds: 2);
       if (status!.phase == ProcessingPhase.error) {
         error = status!.errorMessage ?? 'Обработка завершилась с ошибкой.';
       }
     } catch (e) {
       error = storageError ?? e.toString();
       _failures++;
-      retryLater =
-          (e is ApiException && e.isNetwork || _failures < 4) &&
-          !(e is ApiException && e.statusCode == 409);
+      retryLater = e is ApiException ? e.retryable : false;
+      _pollDelay = retryDelay(
+        _failures,
+        minimum: e is ApiException ? e.retryAfter : null,
+      );
       if (e is ApiException &&
           e.statusCode == 404 &&
           recovery.operation != null) {
@@ -264,8 +267,7 @@ class MeetingController extends ChangeNotifier {
           result == null &&
           status?.phase != ProcessingPhase.error &&
           !_paused) {
-        _timer = Timer(Duration(seconds: _interval), () => unawaited(check()));
-        _interval = min(10, _interval + 2);
+        _timer = Timer(_pollDelay, () => unawaited(check()));
       }
     }
   }
@@ -314,7 +316,7 @@ class MeetingController extends ChangeNotifier {
         operation.folderIds,
         options: operation.options,
       );
-      _interval = 2;
+      _pollDelay = const Duration(seconds: 2);
     } catch (e) {
       error = e.toString();
     } finally {

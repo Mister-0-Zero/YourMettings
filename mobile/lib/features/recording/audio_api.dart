@@ -1,3 +1,6 @@
+import '../../api/api_error.dart';
+import '../../api/demo_connection.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -9,7 +12,16 @@ import '../../models/api_models.dart';
 
 /// Independent client: audio uploads must never block capture or JSON requests.
 class AudioApi {
-  AudioApi(this.base, {http.Client? client}) : client = client ?? http.Client();
+  AudioApi(
+    this.base, {
+    http.Client? client,
+    this.connection,
+    this.uploadTimeout = const Duration(seconds: 360),
+    this.jsonTimeout = const Duration(seconds: 20),
+  }) : client =
+           connection?.client(inner: client) ?? client ?? platformHttpClient();
+  final DemoConnection? connection;
+  final Duration uploadTimeout, jsonTimeout;
   final Uri base;
   final http.Client client;
   Future<Json> _send(http.BaseRequest request, Completer<void> abort) async {
@@ -18,7 +30,7 @@ class AudioApi {
           .send(request)
           .then(http.Response.fromStream)
           .timeout(
-            const Duration(minutes: 2),
+            request is http.StreamedRequest ? uploadTimeout : jsonTimeout,
             onTimeout: () {
               if (!abort.isCompleted) abort.complete();
               throw TimeoutException('Audio HTTP deadline');
@@ -30,27 +42,16 @@ class AudioApi {
           throw const FormatException('Deletion requires confirmed empty 204');
         }
       }
-      Json value = {};
       try {
-        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-        if (decoded is Json) {
-          value = decoded;
-        } else if (response.statusCode >= 200 && response.statusCode < 300) {
-          throw const FormatException();
-        }
-      } on FormatException {
-        if (response.statusCode >= 200 && response.statusCode < 300) rethrow;
-      }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final error = value['error'] as Json?;
-        throw ApiException(
-          error?['code'] as String? ?? 'audio_error',
-          error?['message'] as String? ??
-              'Не удалось выполнить запрос. Данные сохранены на устройстве.',
-          statusCode: response.statusCode,
+        return decodeResponse(
+          response.bodyBytes,
+          response.statusCode,
+          response.headers,
         );
+      } on ApiException catch (e) {
+        connection?.report(e);
+        rethrow;
       }
-      return value;
     } on TimeoutException {
       throw const ApiException(
         'audio_timeout',

@@ -31,6 +31,9 @@ class SelectionController extends ChangeNotifier {
   bool busy = false, disposed = false, paused = false, terminal = false;
   Timer? _timer;
   bool _retryNetwork = false;
+  bool _pollAllowed = true;
+  int _failures = 0;
+  Duration _pollDelay = const Duration(seconds: 2);
   bool get frozen =>
       state['accept_id'] != null ||
       state['accepted_summary_id'] != null ||
@@ -266,14 +269,21 @@ class SelectionController extends ChangeNotifier {
     _timer?.cancel();
     busy = true;
     _retryNetwork = false;
+    _pollAllowed = true;
     error = null;
     _notify();
     try {
       await action();
+      _failures = 0;
+      _pollDelay = const Duration(seconds: 2);
     } catch (e) {
       error = e.toString();
-      _retryNetwork =
-          e is ApiException && (e.isNetwork || (e.statusCode ?? 0) >= 500);
+      _retryNetwork = e is ApiException && e.retryable;
+      _pollAllowed = _retryNetwork;
+      _pollDelay = retryDelay(
+        ++_failures,
+        minimum: e is ApiException ? e.retryAfter : null,
+      );
       if (e is ApiException &&
           ['summary_version_conflict', 'source_conflict'].contains(e.code)) {
         error = 'Встреча изменена в другом редакторе. Вернитесь к актуальному документу и откройте новый выбор шаблона.';
@@ -286,7 +296,7 @@ class SelectionController extends ChangeNotifier {
         await _save();
         error = 'Срок выбора истёк. Исходный текст сохранён; отмените этот выбор и начните заново.';
       } else if (e is ApiException &&
-          [404, 409, 410, 413, 422, 429].contains(e.statusCode) &&
+          [404, 409, 410, 413, 422].contains(e.statusCode) &&
           hasPending) {
         state = {...state, 'candidate_pending': null};
         await _save();
@@ -295,6 +305,7 @@ class SelectionController extends ChangeNotifier {
       busy = false;
       _notify();
       if (!disposed &&
+          _pollAllowed &&
           !paused &&
           accepted == null &&
           !terminal &&
@@ -304,7 +315,7 @@ class SelectionController extends ChangeNotifier {
               _retryNetwork &&
                   state['key'] != null &&
                   state['session_id'] == null)) {
-        _timer = Timer(const Duration(seconds: 4), refresh);
+        _timer = Timer(_pollDelay, refresh);
       }
     }
   }

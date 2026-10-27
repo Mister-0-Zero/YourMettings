@@ -1,3 +1,6 @@
+import '../features/settings/connection_page.dart';
+import '../services/connection_settings.dart';
+import '../api/demo_connection.dart';
 import '../features/recording/recorder_coordinator.dart';
 import '../features/recording/audio_review_controller.dart';
 import '../features/recording/recorder_page.dart';
@@ -23,7 +26,9 @@ class YourMettingsApp extends StatefulWidget {
     this.recorder,
     this.audioReview,
     this.drafts,
+    this.connectionSettings,
   });
+  final ConnectionSettings? connectionSettings;
   final MeetingController? controller;
   final AppearanceController? appearance;
   final RecorderCoordinator? recorder;
@@ -47,8 +52,15 @@ class _YourMettingsAppState extends State<YourMettingsApp> {
     animation: _appearance,
     builder: (context, _) => MaterialApp(
       title: 'YourMettings',
-      builder: (context, child) =>
-          AppearanceScope(controller: _appearance, child: child!),
+      builder: (context, child) {
+        final content = AppearanceScope(controller: _appearance, child: child!);
+        return widget.connectionSettings == null
+            ? content
+            : ConnectionScope(
+                controller: widget.connectionSettings!,
+                child: content,
+              );
+      },
       debugShowCheckedModeBanner: false,
       locale: const Locale('ru'),
       supportedLocales: const [Locale('ru')],
@@ -127,30 +139,57 @@ class _MeetingShellState extends State<MeetingShell>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(_titles[_selected])),
     body: SafeArea(
-      child: IndexedStack(
-        index: _selected,
+      child: Column(
         children: [
-          NewMeetingPage(
-            controller: widget.controller,
-            recorder: widget.recorder,
-            audioReview: widget.audioReview,
+          if (ConnectionScope.maybeOf(context) case final settings?)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Column(
+                children: [
+                  Text(
+                    '${profileLabel(settings.profile)} · Демонстрационный режим — только тестовые данные',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                  if (settings.accessError != null)
+                    TextButton(
+                      onPressed: () =>
+                          openConnectionSettings(context, settings),
+                      child: Text(
+                        settings.accessError!,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _selected,
+              children: [
+                NewMeetingPage(
+                  controller: widget.controller,
+                  recorder: widget.recorder,
+                  audioReview: widget.audioReview,
+                ),
+                widget.controller == null
+                    ? const PlaceholderPage(
+                        icon: Icons.folder_open_outlined,
+                        title: 'Ваши встречи',
+                        message: 'Здесь появятся папки и результаты обработки встреч.',
+                      )
+                    : MeetingsPage(controller: widget.controller!),
+                WorkspacePage(
+                  controller: widget.controller,
+                  recorder: widget.recorder,
+                  review: widget.audioReview,
+                  drafts: widget.drafts,
+                  visible: _selected == 2,
+                ),
+                AppearancePage(controller: widget.appearance),
+              ],
+            ),
           ),
-          widget.controller == null
-              ? const PlaceholderPage(
-                  icon: Icons.folder_open_outlined,
-                  title: 'Ваши встречи',
-                  message:
-                      'Здесь появятся папки и результаты обработки встреч.',
-                )
-              : MeetingsPage(controller: widget.controller!),
-          WorkspacePage(
-            controller: widget.controller,
-            recorder: widget.recorder,
-            review: widget.audioReview,
-            drafts: widget.drafts,
-            visible: _selected == 2,
-          ),
-          AppearancePage(controller: widget.appearance),
         ],
       ),
     ),

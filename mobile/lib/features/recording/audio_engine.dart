@@ -109,6 +109,13 @@ class AudioEngine {
         'id': session['id'],
         'limits': session,
         'phase': 'prepared',
+        if (api.connection != null)
+          'capture_target_seconds': min(
+            30,
+            session['chunk_target_seconds'] as int,
+          ),
+        if (api.connection != null)
+          'capture_max_seconds': min(60, session['max_chunk_seconds'] as int),
       });
       journal.saveSync();
     }
@@ -123,8 +130,12 @@ class AudioEngine {
     final limits = journal.data['limits'] as Json;
     writer = PcmChunkWriter(
       journal,
-      targetSeconds: limits['chunk_target_seconds'] as int,
-      maxSeconds: limits['max_chunk_seconds'] as int,
+      targetSeconds:
+          journal.data['capture_target_seconds'] as int? ??
+          limits['chunk_target_seconds'] as int,
+      maxSeconds:
+          journal.data['capture_max_seconds'] as int? ??
+          limits['max_chunk_seconds'] as int,
       maxBytes: limits['max_upload_bytes'] as int,
       maxChunks: limits['max_chunks'] as int,
     );
@@ -382,15 +393,16 @@ class AudioEngine {
       if (_disposed) return;
       _failures++;
       _nextAttempt = DateTime.now().add(
-        Duration(seconds: min(60, 2 << min(_failures, 5))),
+        retryDelay(_failures, minimum: e is ApiException ? e.retryAfter : null),
       );
-      final transient =
-          e is ApiException && (e.isNetwork || (e.statusCode ?? 0) >= 500);
+      final transient = e is ApiException && e.retryable;
       journal.data['network_error'] = transient;
       journal.data['upload_error'] = 'Запись сохранена на устройстве. Отправим её, когда соединение восстановится';
       if (!transient) {
         journal.data['blocked'] = true;
-        journal.data['upload_error'] = 'Не удалось отправить запись. Аудио сохранено на устройстве. Повторите отправку.';
+        journal.data['upload_error'] = e is ApiException
+            ? '${e.message} Аудио сохранено на устройстве.'
+            : 'Не удалось отправить запись. Аудио сохранено на устройстве. Повторите отправку.';
       }
       log('upload_retry transient=$transient');
       try {

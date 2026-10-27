@@ -1,3 +1,6 @@
+export 'api_error.dart';
+import 'api_error.dart';
+import 'demo_connection.dart';
 import '../services/operation_store.dart';
 import '../models/summary_template.dart';
 import '../models/processing_options.dart';
@@ -9,29 +12,17 @@ import 'package:http/http.dart' as http;
 
 import '../models/api_models.dart';
 
-class ApiException implements Exception {
-  const ApiException(
-    this.code,
-    this.message, {
-    this.statusCode,
-    this.isNetwork = false,
-  });
-  final String code;
-  final String message;
-  final int? statusCode;
-  final bool isNetwork;
-  @override
-  String toString() => message;
-}
-
 class ApiClient {
   ApiClient(
     this.baseUri, {
     http.Client? client,
     this.timeout = const Duration(seconds: 20),
     this.operations,
-  }) : _client = client ?? http.Client();
+    this.connection,
+  }) : _client =
+           connection?.client(inner: client) ?? client ?? platformHttpClient();
   final Uri baseUri;
+  final DemoConnection? connection;
   final http.Client _client;
   final Duration timeout;
   final OperationStore? operations;
@@ -44,7 +35,12 @@ class ApiClient {
     String? idempotencyKey,
   }) async {
     final uri = baseUri.resolve(path).replace(queryParameters: query);
-    final request = http.Request(method, uri);
+    final abort = Completer<void>();
+    final request = http.AbortableRequest(
+      method,
+      uri,
+      abortTrigger: abort.future,
+    );
     request.headers['Accept'] = 'application/json';
     if (body != null) {
       request.headers['Content-Type'] = 'application/json; charset=utf-8';
@@ -57,34 +53,23 @@ class ApiClient {
       final response = await _client
           .send(request)
           .then(http.Response.fromStream)
-          .timeout(timeout);
-      Json json = {};
-      if (response.bodyBytes.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-          if (decoded is Map<String, dynamic>) {
-            json = decoded;
-          } else if (response.statusCode >= 200 && response.statusCode < 300) {
-            throw const FormatException('Ожидался JSON-объект.');
-          }
-        } on FormatException {
-          if (response.statusCode >= 200 && response.statusCode < 300) rethrow;
-        }
-      }
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        final error = json['error'];
-        throw ApiException(
-          error is Json
-              ? (error['code'] as String? ?? 'http_error')
-              : 'http_error',
-          error is Json
-              ? (error['message'] as String? ??
-                    'Ошибка сервера (${response.statusCode}).')
-              : 'Ошибка сервера (${response.statusCode}).',
-          statusCode: response.statusCode,
+          .timeout(
+            timeout,
+            onTimeout: () {
+              if (!abort.isCompleted) abort.complete();
+              throw TimeoutException('JSON request timeout');
+            },
+          );
+      try {
+        return decodeResponse(
+          response.bodyBytes,
+          response.statusCode,
+          response.headers,
         );
+      } on ApiException catch (e) {
+        connection?.report(e);
+        rethrow;
       }
-      return json;
     } on TimeoutException {
       throw const ApiException(
         'network_timeout',
@@ -105,6 +90,9 @@ class ApiClient {
     }
   }
 
+  Future<Json> health() =>
+      _request('GET', baseUri.resolve('/health').toString());
+  Future<Json> authMe() => _request('GET', 'auth/me');
   Future<ProcessingStatus> submitTranscript({
     required String text,
     required String title,

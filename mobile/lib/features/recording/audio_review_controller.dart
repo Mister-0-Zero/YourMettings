@@ -227,7 +227,9 @@ class AudioReviewController extends MeetingController {
   }
 
   Future<T> withAudioApi<T>(Future<T> Function(AudioApi) action) async {
-    final client = audioApiFactory?.call() ?? AudioApi(api.baseUri);
+    final client =
+        audioApiFactory?.call() ??
+        AudioApi(api.baseUri, connection: api.connection);
     try {
       return await action(client);
     } finally {

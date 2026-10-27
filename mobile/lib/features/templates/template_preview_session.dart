@@ -47,6 +47,8 @@ class TemplatePreviewSession extends ChangeNotifier
   bool _checking = false, _paused = false, _disposed = false;
   Timer? _timer;
   int _failures = 0;
+  bool _pollAllowed = true;
+  Duration _pollDelay = const Duration(seconds: 2);
   String? _inputSignature;
   Json? _request;
   bool get active => preview != null && !preview!.finished;
@@ -109,6 +111,7 @@ class TemplatePreviewSession extends ChangeNotifier
       return;
     }
     sending = true;
+    _pollAllowed = true;
     error = null;
     _failures = 0;
     _notify();
@@ -146,7 +149,7 @@ class TemplatePreviewSession extends ChangeNotifier
           : e.toString();
       if (e is ApiException &&
           e.statusCode != null &&
-          [404, 409, 410, 413, 422, 429].contains(e.statusCode)) {
+          [404, 409, 410, 413, 422].contains(e.statusCode)) {
         _request = null;
         await _save(input);
       }
@@ -158,8 +161,11 @@ class TemplatePreviewSession extends ChangeNotifier
 
   void _schedule() {
     _timer?.cancel();
-    if (!_disposed && !_paused && active) {
-      _timer = Timer(Duration(seconds: _failures == 0 ? 2 : 5), _poll);
+    if (!_disposed && !_paused && _pollAllowed && active) {
+      _timer = Timer(
+        _failures == 0 ? const Duration(seconds: 2) : _pollDelay,
+        _poll,
+      );
     }
   }
 
@@ -174,7 +180,11 @@ class TemplatePreviewSession extends ChangeNotifier
       _failures = 0;
     } catch (e) {
       if (_disposed) return;
-      _failures++;
+      _pollDelay = retryDelay(
+        ++_failures,
+        minimum: e is ApiException ? e.retryAfter : null,
+      );
+      _pollAllowed = e is ApiException && e.retryable;
       if (e is ApiException && [404, 410].contains(e.statusCode)) {
         preview = null;
         _request = null;
@@ -188,7 +198,9 @@ class TemplatePreviewSession extends ChangeNotifier
         }
         error = 'Тест больше недоступен. Ваш текст сохранён на этом экране; запустите тест ещё раз.';
       } else {
-        error = 'Не удалось получить результат. Проверим соединение ещё раз.';
+        error = e is ApiException && e.isAccess
+            ? e.message
+            : 'Не удалось получить результат. Проверим соединение ещё раз.';
       }
     } finally {
       _checking = false;
