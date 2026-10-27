@@ -158,6 +158,17 @@ class ApiClient {
       body: {'title': title, 'content': content},
     ),
   );
+  Future<MeetingSummary> patchSummary(
+    String id, {
+    String? title,
+    String? content,
+  }) async => MeetingSummary.fromJson(
+    await _request(
+      'PATCH',
+      'summaries/$id',
+      body: {'title': ?title, 'content': ?content},
+    ),
+  );
   Future<MeetingSummary> setSummaryFolders(
     String id,
     List<String> folderIds,

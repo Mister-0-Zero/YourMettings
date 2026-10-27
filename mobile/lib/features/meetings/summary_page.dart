@@ -1,3 +1,4 @@
+import '../../app/home_navigation.dart';
 import '../selections/selection_page.dart';
 import '../../models/processing_options.dart';
 
@@ -254,7 +255,11 @@ class _SummaryPageViewState extends State<SummaryPageView> {
       ),
     );
     if (!mounted) return;
-    if (selected != null) widget.controller.summaryUpdated(selected);
+    if (selected != null) {
+      widget.controller.summaryUpdated(selected);
+      returnToHome(context);
+      return;
+    }
     // Cancellation/conflict may follow an external edit; reread current content
     // without adopting a new version inside the old selection.
     setState(() {

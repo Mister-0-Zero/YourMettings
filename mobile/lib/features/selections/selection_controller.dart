@@ -42,11 +42,101 @@ class SelectionController extends ChangeNotifier {
   List<String> get ids =>
       (state['candidate_ids'] as List? ?? []).cast<String>();
   String? get activeId => state['active_id'] as String?;
-  Json? get active => candidates[activeId];
+  Json? get active =>
+      candidates[activeId] ??
+      (state['receipt'] != null && activeId == state['accept_id']
+          ? {
+              'status': 'ready',
+              'content': (state['receipt'] as Json)['content'],
+              'template_snapshot':
+                  (state['receipt'] as Json)['template_snapshot'],
+              'generation_options':
+                  (state['receipt'] as Json)['generation_options'],
+            }
+          : null);
   bool get showingOriginal => activeId == null && original != null;
+  String get _draftKey => activeId ?? 'original';
+  Json get activeEdit => ((state['edits'] as Json?)?[_draftKey] as Json?) ?? {};
+  Json? get _originalBase => state['original_baseline'] as Json?;
+  String get title =>
+      activeEdit['title'] as String? ??
+      (state['receipt'] as Json?)?['title'] as String? ??
+      _originalBase?['title'] as String? ??
+      original?.title ??
+      (state['source'] as Json?)?['title'] as String? ??
+      '';
   String? get content =>
-      showingOriginal ? original!.content : active?['content'] as String?;
-  List<SummaryHeading> get navigation => showingOriginal
+      activeEdit['content'] as String? ??
+      (showingOriginal
+          ? ((_originalBase?['content'] as String?) ?? original!.content)
+          : active?['content'] as String?);
+  bool get hasLocalEdits => activeEdit.isNotEmpty;
+  bool get canEdit =>
+      ready &&
+      !busy &&
+      !terminal &&
+      accepted == null &&
+      (!frozen || state['receipt'] != null || state['keep_original'] == true);
+  Future<void> editActive({
+    required String title,
+    required String content,
+  }) async {
+    if (!canEdit) {
+      throw StateError('Вариант пока недоступен для редактирования.');
+    }
+    if (title.trim().isEmpty ||
+        title.runes.length > 200 ||
+        content.trim().isEmpty) {
+      throw const FormatException(
+        'Заполните название (до 200 символов) и содержание.',
+      );
+    }
+    final baseTitle =
+        _originalBase?['title'] as String? ??
+        original?.title ??
+        (state['source'] as Json?)?['title'] as String? ??
+        '';
+    final baseContent = showingOriginal
+        ? ((_originalBase?['content'] as String?) ?? original!.content)
+        : active!['content'] as String;
+    final edits = {...?state['edits'] as Json?};
+    final edit = <String, dynamic>{
+      if (title != baseTitle) 'title': title,
+      if (content != baseContent) 'content': content,
+    };
+    if (edit.isEmpty) {
+      edits.remove(_draftKey);
+    } else {
+      edits[_draftKey] = edit;
+    }
+    final previous = state;
+    final previousIntent = state['accept_edit'] as Json? ?? {};
+    state = {
+      ...state,
+      'edits': edits,
+      if (frozen) ...{
+        'edit_alternatives': [
+          ...?state['edit_alternatives'] as List?,
+          previousIntent,
+        ],
+        'accept_edit': {
+          for (final key in {...previousIntent.keys, ...edit.keys})
+            key: key == 'title' ? title : content,
+        },
+      },
+    };
+    try {
+      await _save();
+    } catch (_) {
+      state = previous;
+      rethrow;
+    }
+    _notify();
+  }
+
+  List<SummaryHeading> get navigation => activeEdit.containsKey('content')
+      ? []
+      : showingOriginal
       ? original!.navigation
       : [
           for (final j in active?['navigation'] as List? ?? [])
@@ -77,6 +167,13 @@ class SelectionController extends ChangeNotifier {
         'source': body,
         'initial_options': initialOptions.toJson(),
         'candidate_ids': <String>[],
+        if (original != null)
+          'original_baseline': {
+            'id': original!.id,
+            'title': original!.title,
+            'content': original!.content,
+            'version': original!.version,
+          },
       };
       await _save();
     }
@@ -210,30 +307,112 @@ class SelectionController extends ChangeNotifier {
     }
     if (!ready && !frozen) return;
     if (showingOriginal && !frozen) {
-      state = {...state, 'cancel_pending': true, 'keep_original': true};
+      state = {
+        ...state,
+        'cancel_pending': true,
+        'keep_original': true,
+        'accept_edit': {...activeEdit},
+      };
       await _save();
-      await api.cancelSelection(state['session_id'] as String);
-      accepted = await api.summary(original!.id);
+      await _cancel();
       return;
     }
     // Freeze this exact choice BEFORE POST, including after process death.
     if (!frozen) {
-      state = {...state, 'accept_id': activeId};
+      state = {
+        ...state,
+        'accept_id': activeId,
+        'accept_edit': {...activeEdit},
+      };
       await _save();
     }
     await _accept();
   });
   Future<void> _accept() async {
     await _save();
-    final receipt = await api.acceptSelection(
-      state['session_id'] as String,
-      state['accept_id'] as String,
-      state['summary_version'] as String?,
-    );
-    state = {...state, 'accepted_summary_id': receipt.id};
+    if (state['receipt'] == null) {
+      final receipt = await api.acceptSelection(
+        state['session_id'] as String,
+        state['accept_id'] as String,
+        state['summary_version'] as String?,
+      );
+      state = {
+        ...state,
+        'accepted_summary_id': receipt.id,
+        'receipt': {
+          'id': receipt.id,
+          'title': receipt.title,
+          'content': receipt.content,
+          'version': receipt.version,
+          'template_snapshot': receipt.templateSnapshot,
+          'generation_options': receipt.generationOptions,
+        },
+      };
+      await _save();
+    }
+    accepted = await _applyEdits(state['receipt'] as Json);
+  }
+
+  bool get editConflict => state['edit_conflict'] == true;
+  Future<void> retryEditsOverCurrent() => _run(() async {
+    // Only called after explicit confirmation to replace the current fields.
+    final base = state['receipt'] as Json? ?? _originalBase!;
+    final current = await api.summary(base['id'] as String);
+    final replacement = {
+      'id': current.id,
+      'title': current.title,
+      'content': current.content,
+      'version': current.version,
+    };
+    state = {
+      ...state,
+      'edit_conflict': false,
+      if (state['receipt'] != null)
+        'receipt': replacement
+      else
+        'original_baseline': replacement,
+    };
     await _save();
-    // Receipt is immutable; a later manual edit must be read with GET.
-    accepted = await api.summary(receipt.id);
+    if (state['keep_original'] == true) {
+      await _cancel();
+    } else {
+      await _accept();
+    }
+  });
+
+  Future<MeetingSummary> _applyEdits(Json baseline) async {
+    final edit = state['accept_edit'] as Json? ?? {};
+    final current = await api.summary(baseline['id'] as String);
+    if (edit.isEmpty ||
+        edit.entries.every(
+          (e) =>
+              e.value == (e.key == 'title' ? current.title : current.content),
+        )) {
+      return current;
+    }
+    // A lost PATCH reply is reconciled by reading first. Never blindly replay
+    // local text over an already visible change by another editor.
+    if (edit.keys.any(
+      (key) =>
+          baseline[key] != (key == 'title' ? current.title : current.content) &&
+          !(state['edit_alternatives'] as List? ?? []).any(
+            (old) =>
+                (old as Json)[key] ==
+                (key == 'title' ? current.title : current.content),
+          ),
+    )) {
+      state = {...state, 'edit_conflict': true};
+      await _save();
+      throw const ApiException(
+        'local_edit_conflict',
+        'Документ уже изменён. Ваши правки сохранены на устройстве. Повторное сохранение потребует подтверждения замены текущего текста.',
+      );
+    }
+    return api.patchSummary(
+      current.id,
+      title: edit['title'] as String?,
+      content: edit['content'] as String?,
+    );
   }
 
   Future<void> _cancel() async {
@@ -243,7 +422,15 @@ class SelectionController extends ChangeNotifier {
       await api.cancelSelection(state['session_id'] as String);
     }
     if (state['keep_original'] == true && original != null) {
-      accepted = await api.summary(original!.id);
+      accepted = await _applyEdits(
+        _originalBase ??
+            {
+              'id': original!.id,
+              'title': original!.title,
+              'content': original!.content,
+              'version': original!.version,
+            },
+      );
     } else {
       await store.remove(slot);
       terminal = true;

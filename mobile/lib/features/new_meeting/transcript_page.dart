@@ -1,3 +1,4 @@
+import '../../app/home_navigation.dart';
 import '../../models/generation_source.dart';
 
 import 'dart:async';
@@ -334,17 +335,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
         ),
       );
       if (!mounted) return;
-      if (result != null) {
-        navigator.popUntil((r) => r.isFirst);
-        unawaited(
-          navigator.push<MeetingSummary>(
-            MaterialPageRoute(
-              builder: (_) =>
-                  SummaryPageView(controller: controller, summary: result),
-            ),
-          ),
-        );
-      }
+      if (result != null) returnToHome(context);
     } finally {
       _operationOpen = false;
     }

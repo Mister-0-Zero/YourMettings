@@ -1,3 +1,4 @@
+import 'home_navigation.dart';
 import '../features/settings/connection_page.dart';
 import '../services/connection_settings.dart';
 import '../api/demo_connection.dart';
@@ -39,10 +40,12 @@ class YourMettingsApp extends StatefulWidget {
 }
 
 class _YourMettingsAppState extends State<YourMettingsApp> {
+  final _navigation = HomeNavigation();
   late final AppearanceController _appearance =
       widget.appearance ?? AppearanceController();
   @override
   void dispose() {
+    _navigation.dispose();
     if (widget.appearance == null) _appearance.dispose();
     super.dispose();
   }
@@ -53,7 +56,10 @@ class _YourMettingsAppState extends State<YourMettingsApp> {
     builder: (context, _) => MaterialApp(
       title: 'YourMettings',
       builder: (context, child) {
-        final content = AppearanceScope(controller: _appearance, child: child!);
+        final content = HomeNavigationScope(
+          controller: _navigation,
+          child: AppearanceScope(controller: _appearance, child: child!),
+        );
         return widget.connectionSettings == null
             ? content
             : ConnectionScope(
@@ -127,7 +133,9 @@ class _MeetingShellState extends State<MeetingShell>
     }
   }
 
-  int _selected = 0;
+  int _localSelected = 0;
+  int get _selected =>
+      HomeNavigationScope.maybeOf(context)?.value ?? _localSelected;
   static const _titles = [
     'Новая встреча',
     'Встречи',
@@ -195,7 +203,14 @@ class _MeetingShellState extends State<MeetingShell>
     ),
     bottomNavigationBar: NavigationBar(
       selectedIndex: _selected,
-      onDestinationSelected: (index) => setState(() => _selected = index),
+      onDestinationSelected: (index) {
+        final navigation = HomeNavigationScope.maybeOf(context);
+        if (navigation != null) {
+          navigation.value = index;
+        } else {
+          setState(() => _localSelected = index);
+        }
+      },
       destinations: [
         DefaultTextStyle.merge(
           textAlign: TextAlign.center,
