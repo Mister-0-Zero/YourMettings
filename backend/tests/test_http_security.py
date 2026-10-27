@@ -97,3 +97,20 @@ def test_launcher_auth_probe_does_not_require_user_session(monkeypatch,tmp_path,
     monkeypatch.setattr(httpx,'Client',lambda **kwargs:actual_client(**kwargs,transport=httpx.MockTransport(handle)))
     system=System(SimpleNamespace(root=tmp_path))
     assert system.backend_ready() is db_ready
+
+
+@pytest.mark.parametrize('denied',[401,429])
+@pytest.mark.parametrize('valid',[True,False])
+def test_demo_launcher_uses_key_and_tolerates_denied_request_throttle(monkeypatch,tmp_path,denied,valid):
+    actual_client=httpx.Client
+    def handle(request):
+        if request.url.path in ('/health','/api/v1/auth/me'):
+            assert request.headers['X-Demo-Key']=='synthetic-probe-key'
+            if request.url.path=='/health':
+                return httpx.Response(200,json={'status':'ok'})
+            return httpx.Response(200 if valid else 403,json={'access_mode':'demo'})
+        assert 'X-Demo-Key' not in request.headers
+        return httpx.Response(denied,json={'error':{'code':'demo_key_required'}})
+    monkeypatch.setattr(httpx,'Client',lambda **kwargs:actual_client(**kwargs,transport=httpx.MockTransport(handle)))
+    system=System(SimpleNamespace(root=tmp_path,demo_enabled=True,demo_secret='synthetic-probe-key'))
+    assert system.backend_ready() is valid

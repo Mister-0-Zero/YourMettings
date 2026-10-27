@@ -32,6 +32,9 @@ class Config:
     asr_home: Path | None = None
     asr_timeout: int = 180
     auth_issues: tuple[str, ...] = ()
+    bind_lan: bool = True
+    demo_enabled: bool = False
+    demo_secret: str = field(default="", repr=False)
 
     @property
     def python(self):
@@ -69,6 +72,8 @@ class System:
         return json.loads(result.stdout.lstrip("\ufeff").strip() or "null")
 
     def check_lan(self):
+        if not self.config.bind_lan:
+            return
         try:
             address = ipaddress.IPv4Address(self.config.lan_host)
         except ValueError as exc:
@@ -243,6 +248,15 @@ class System:
     def backend_ready(self):
         try:
             with httpx.Client(base_url="http://127.0.0.1:8000", timeout=3, trust_env=False) as client:
+                if getattr(self.config, "demo_enabled", False):
+                    headers = {"X-Demo-Key":self.config.demo_secret}
+                    health = client.get("/health", headers=headers)
+                    me = client.get("/api/v1/auth/me", headers=headers)
+                    schema = client.get("/openapi.json")
+                    folders = client.get("/api/v1/folders")
+                    return (health.status_code == 200 and health.json().get("status") == "ok"
+                        and me.status_code == 200 and me.json().get("access_mode") == "demo"
+                        and schema.status_code in (401,429) and folders.status_code in (401,429))
                 health = client.get("/health")
                 schema = client.get("/openapi.json")
                 folders = client.get("/api/v1/folders")
@@ -354,14 +368,18 @@ class Launcher:
                 "Посмотрите лог backend. Скрипт не останавливает процессы и не запускает дубли.")
         listeners = self.backend_port()
         addresses = {item["address"] for item in listeners}
-        if not {"127.0.0.1", self.config.lan_host}.issubset(addresses):
+        expected = {"127.0.0.1", self.config.lan_host} if self.config.bind_lan else {"127.0.0.1"}
+        if addresses != expected:
             raise LaunchError("Сеть", "Backend не слушает оба настроенных локальных адреса.",
                 "Проверьте способ запуска backend; ожидается один процесс app.run с --lan-host.")
         print("\nГОТОВО: PostgreSQL, Ollama, ASR (если включён) и backend проверены.", flush=True)
         for issue in self.config.auth_issues:
             print("Внимание — авторизация: " + issue, flush=True)
         print("ПК: http://127.0.0.1:8000/api/v1 (требуется вход; OpenAPI также защищён)", flush=True)
-        print(f"Телефон (LAN): http://{self.config.lan_host}:8000/api/v1", flush=True)
+        if self.config.bind_lan:
+            print(f"Телефон (LAN): http://{self.config.lan_host}:8000/api/v1", flush=True)
+        else:
+            print("LAN listener отключён; используйте USB reverse или защищённый HTTPS-шлюз.", flush=True)
         print("PID backend: " + ", ".join(str(pid) for pid in sorted({x["pid"] for x in listeners})), flush=True)
         print("Закрытие этого окна не останавливает серверы.", flush=True)
 
@@ -397,9 +415,9 @@ def load_config(args):
         from sqlalchemy.engine import make_url
         settings = Settings()
         auth_issues = []
-        if len(settings.auth_secret.encode()) < 32:
+        if not settings.demo_enabled and len(settings.auth_secret.encode()) < 32:
             auth_issues.append("AUTH_SECRET не настроен; запрос кода вернёт 503.")
-        if (not settings.smtp_host or not settings.smtp_from_email or settings.smtp_security not in ("ssl", "starttls")
+        if not settings.demo_enabled and (not settings.smtp_host or not settings.smtp_from_email or settings.smtp_security not in ("ssl", "starttls")
                 or bool(settings.smtp_username) != bool(settings.smtp_password)):
             auth_issues.append("SMTP не настроен полностью; письма не отправляются. См. docs/AUTH_MIGRATION.md.")
         if not (root / "backend/.env").is_file():
@@ -413,7 +431,8 @@ def load_config(args):
         return Config(root, settings.database_url, settings.ollama_base_url.rstrip("/"),
             settings.ollama_model, args.lan_host, args.postgres_service,
             settings.asr_enabled, settings.asr_home, settings.asr_startup_timeout_seconds,
-            auth_issues=tuple(auth_issues))
+            auth_issues=tuple(auth_issues), bind_lan=settings.backend_lan_enabled,
+            demo_enabled=settings.demo_enabled, demo_secret=settings.demo_secret)
     except Exception as exc:
         raise LaunchError("Конфигурация", "Не удалось прочитать корректную локальную конфигурацию приложения.",
             "Проверьте backend/.env, DATABASE_URL, OLLAMA_BASE_URL и OLLAMA_MODEL. Содержимое файла не выводится.") from exc

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Header, Request, Response
 from typing import Annotated
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.auth_schemas import AuthUser, CodeRequested, RefreshToken, RequestCode, TokenPair, VerifyCode
@@ -8,9 +8,12 @@ from app.db.models import User
 from app.db.session import get_db
 from app.integrations.email import EmailSender, get_email_sender
 from app.services import auth
+from app.core.config import settings
+from app.services import demo_access
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer = HTTPBearer(auto_error=False)
+demo_key = APIKeyHeader(name="X-Demo-Key", auto_error=False)
 
 
 def access_credential(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> str:
@@ -19,8 +22,18 @@ def access_credential(credentials: HTTPAuthorizationCredentials | None = Depends
     return credentials.credentials
 
 
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(access_credential)) -> User:
-    session = auth.authenticate_session(db, token)
+def get_current_user(db: Session = Depends(get_db),
+                     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+                     key: str | None = Depends(demo_key)) -> User:
+    if settings.demo_enabled:
+        demo_access.check_key(key)
+        user = db.get(User, demo_access.DEMO_USER_ID)
+        if (user is None or user.email != demo_access.DEMO_EMAIL or user.role != "user" or
+                user.email_verified_at is not None or user.legacy_claim_pending):
+            demo_access.fail(503, "demo_not_configured")
+        db.info["user_id"] = user.id
+        return user
+    session = auth.authenticate_session(db, access_credential(credentials))
     user = db.get(User, session.user_id)
     if user is None or user.email_verified_at is None or user.legacy_claim_pending:
         auth.fail(401, "invalid_session")
@@ -57,4 +70,5 @@ def logout(db: Session = Depends(get_db), token: str = Depends(access_credential
 
 @router.get("/me", response_model=AuthUser)
 def me(user: User = Depends(get_current_user)):
-    return user
+    return AuthUser.model_validate(user).model_copy(update={
+        "access_mode": "demo" if settings.demo_enabled else "email"})

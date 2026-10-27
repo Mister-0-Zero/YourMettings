@@ -34,7 +34,11 @@ def get_db() -> Iterator[Session]:
 
 
 def initialize_database(factory):
+    settings.validate_demo_configuration()
     with factory.begin() as db:
+        if settings.demo_enabled:
+            from app.services.demo_access import ensure_demo_user
+            ensure_demo_user(db)
         from app.services.template_catalog import seed_system_templates
         seed_system_templates(db)
         from app.services.variants import initialize_variants

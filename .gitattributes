@@ -1,0 +1,3 @@
+# POSIX deployment files must remain executable text after Windows checkout.
+deploy/demo/*.sh text eol=lf
+deploy/demo/Caddyfile* text eol=lf

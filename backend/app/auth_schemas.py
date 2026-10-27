@@ -39,12 +39,13 @@ class AuthUser(BaseModel):
     id: UUID
     email: str
     role: Literal["user", "admin"]
-    email_verified_at: datetime
+    email_verified_at: datetime | None
+    access_mode: Literal["email", "demo"] = "email"
 
     @field_validator("email_verified_at")
     @classmethod
-    def utc_timestamp(cls, value: datetime) -> datetime:
-        return value.astimezone(timezone.utc)
+    def utc_timestamp(cls, value: datetime | None) -> datetime | None:
+        return value.astimezone(timezone.utc) if value is not None else None
 
 
 class TokenPair(BaseModel):

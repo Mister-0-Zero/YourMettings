@@ -1,0 +1,47 @@
+{
+    admin 127.0.0.1:2019
+    auto_https disable_redirects
+    default_sni 194.117.80.169
+    persist_config off
+    log default {
+        exclude http.log
+    }
+    servers {
+        protocols h1 h2
+        max_header_size 16384
+        timeouts {
+            read_header 10s
+            read_body 10m
+            write 10m
+            idle 2m
+        }
+    }
+}
+
+https://194.117.80.169 {
+    tls {
+        issuer acme {
+            profile shortlived
+            disable_http_challenge
+        }
+    }
+    # No access log, body buffering, cookies, credentials or meeting storage on VPS.
+    request_body {
+        max_size 33554432
+    }
+    header {
+        Cache-Control "no-store"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+    reverse_proxy 127.0.0.1:18000 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+        flush_interval -1
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 5m
+        }
+    }
+}

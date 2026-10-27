@@ -1,0 +1,21 @@
+{
+  "audio_seconds": 180.0,
+  "asr_elapsed_seconds": 604.265,
+  "transcript_characters": 2195,
+  "summary_characters": 3862,
+  "total_seconds": 652.687,
+  "chunks": 2,
+  "container": "WAV/PCM",
+  "chunk_bytes": [
+    2880078,
+    2880078
+  ],
+  "https_base": "https://194.117.80.169",
+  "resumed_after_timeout": true,
+  "idempotent_chunk_repeats": true,
+  "asr_model": "v3_e2e_rnnt",
+  "llm_model": "qwen3.8:27b",
+  "worker_generation_unchanged": true,
+  "qwen_attempts": 1,
+  "existing_records_unchanged": true
+}

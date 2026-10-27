@@ -1,0 +1,30 @@
+{
+    admin 127.0.0.1:2019
+    auto_https disable_redirects
+    default_sni 194.117.80.169
+    persist_config off
+    log default {
+        exclude http.log
+    }
+    servers {
+        protocols h1 h2
+        max_header_size 16384
+        timeouts {
+            read_header 10s
+            read_body 10m
+            write 10m
+            idle 2m
+        }
+    }
+}
+
+https://194.117.80.169 {
+    tls {
+        issuer acme {
+            profile shortlived
+            disable_http_challenge
+        }
+    }
+    # No user traffic reaches the home PC until demo access has been verified.
+    respond "Demonstration gateway is not enabled" 503
+}

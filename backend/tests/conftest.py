@@ -11,6 +11,15 @@ from app.core.config import settings
 from app.db.session import initialize_database, TEST_USER_ID
 
 
+@pytest.fixture(autouse=True)
+def email_mode_default():
+    # Developer .env may enable demo access; regression tests choose explicitly.
+    # Keep this scope separate from a test calling monkeypatch.undo().
+    with pytest.MonkeyPatch.context() as mode:
+        mode.setattr(settings, "demo_enabled", False)
+        yield
+
+
 @pytest.fixture
 def database():
     url = settings.test_database_url

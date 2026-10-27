@@ -182,6 +182,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ]
       }
@@ -196,6 +199,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -262,6 +268,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -343,6 +352,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -389,6 +401,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -447,6 +462,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -505,6 +523,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -565,6 +586,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ]
       },
@@ -609,6 +633,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ]
       }
@@ -623,6 +650,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -679,6 +709,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -739,6 +772,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -817,6 +853,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -863,6 +902,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -919,6 +961,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -960,6 +1005,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1018,6 +1066,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1087,6 +1138,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1133,6 +1187,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1186,6 +1243,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1313,6 +1373,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1371,6 +1434,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1429,6 +1495,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1499,6 +1568,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ]
       },
@@ -1543,6 +1615,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ]
       }
@@ -1557,6 +1632,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1603,6 +1681,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1659,6 +1740,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1700,6 +1784,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1758,6 +1845,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1836,6 +1926,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1888,6 +1981,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -1939,6 +2035,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -2016,6 +2115,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -2080,6 +2182,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -2149,6 +2254,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -2236,6 +2344,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -2302,6 +2413,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -2390,6 +2504,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ]
       }
@@ -2404,6 +2521,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "parameters": [
@@ -3002,9 +3122,25 @@
             "title": "Role"
           },
           "email_verified_at": {
-            "type": "string",
-            "format": "date-time",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Email Verified At"
+          },
+          "access_mode": {
+            "type": "string",
+            "enum": [
+              "email",
+              "demo"
+            ],
+            "title": "Access Mode",
+            "default": "email"
           }
         },
         "type": "object",
@@ -4703,6 +4839,11 @@
       "HTTPBearer": {
         "type": "http",
         "scheme": "bearer"
+      },
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Demo-Key"
       }
     }
   }

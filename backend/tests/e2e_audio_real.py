@@ -37,20 +37,22 @@ def run(args):
         before_transcripts = snapshot(db, Transcript, "text")
         before_summaries = snapshot(db, Summary, "content")
         worker_generation = db.get(ASRWorkerState, 1).generation
-    with tempfile.TemporaryDirectory(prefix="ym-audio-e2e-") as directory, httpx.Client(base_url=args.base, timeout=40, trust_env=False) as client:
+    headers = {"X-Demo-Key":settings.demo_secret} if settings.demo_enabled else {}
+    with tempfile.TemporaryDirectory(prefix="ym-audio-e2e-") as directory, httpx.Client(base_url=args.base, timeout=httpx.Timeout(600,connect=15), trust_env=False, headers=headers) as client:
         prefix = "/api/v1"
-        folder = checked(client.post(prefix + "/folders", json={"name": "ASR E2E " + str(uuid.uuid4())[:8]}), 201)
+        folder = {"id":args.resume_folder} if args.resume_session else checked(client.post(prefix + "/folders", json={"name": "ASR E2E " + str(uuid.uuid4())[:8]}), 201)
         params = {"title": "ASR E2E аудиозапись", "folder_ids": [folder["id"]], "detail_level": "brief",
             "focus_areas": [], "additional_instructions": "Это фрагмент аудиокниги: кратко перескажи содержание без выдуманных поручений."}
-        session = checked(client.post(prefix + "/audio-sessions", json=params, headers={"Idempotency-Key": str(uuid.uuid4())}), 201)
+        session = checked(client.get(prefix + "/audio-sessions/" + args.resume_session), 200) if args.resume_session else checked(client.post(prefix + "/audio-sessions", json=params, headers={"Idempotency-Key": str(uuid.uuid4())}), 201)
         sid = session["id"]
         path = prefix + "/audio-sessions/" + sid
         print(json.dumps({"audio_session_id": sid, "folder_id": folder["id"]}), flush=True)
         payloads, durations = [], []
         for sequence in range(2):
-            target = Path(directory) / f"{sequence}.m4a"
+            target = Path(directory) / (f"{sequence}.wav" if args.pcm else f"{sequence}.m4a")
+            codec = ["-c:a", "pcm_s16le"] if args.pcm else ["-c:a", "aac", "-b:a", "64k"]
             converted = subprocess.run([str(ffmpeg_path()), "-nostdin", "-v", "error", "-ss", str(sequence * args.chunk_seconds),
-                "-i", str(args.audio.resolve()), "-t", str(args.chunk_seconds), "-ac", "1", "-ar", "16000", "-c:a", "aac", "-b:a", "64k", str(target)],
+                "-i", str(args.audio.resolve()), "-t", str(args.chunk_seconds), "-ac", "1", "-ar", "16000", *codec, str(target)],
                 capture_output=True, timeout=60)
             assert converted.returncode == 0, "E2E fixture conversion failed"
             data = target.read_bytes()
@@ -59,11 +61,14 @@ def run(args):
             payloads.append(data)
             durations.append(duration)
         started = time.monotonic()
+        existing = {chunk["sequence_number"]:chunk["id"] for chunk in session["chunks"]}
         for sequence in (1, 0):
             metadata = {"sequence_number": sequence, "start_ms": 0 if sequence == 0 else durations[0],
                 "duration_ms": durations[sequence], "content_sha256": hashlib.sha256(payloads[sequence]).hexdigest()}
             accepted = checked(client.post(path + "/chunks", params=metadata, content=payloads[sequence],
-                headers={"Content-Type": "application/octet-stream"}), 201)
+                headers={"Content-Type": "application/octet-stream"}), 200 if sequence in existing else 201)
+            if sequence in existing:
+                assert accepted["chunk"]["id"] == existing[sequence]
             assert accepted["safe_to_delete_local"] is True
             assert checked(client.post(path + "/chunks", params=metadata, content=payloads[sequence]), 200)["chunk"]["id"] == accepted["chunk"]["id"]
         checked(client.post(path + "/complete", json={"expected_chunk_count": 2}), 202)
@@ -107,7 +112,9 @@ def run(args):
             assert db.get(Transcript, uuid.UUID(tid)).processing_attempt == 1
         metrics = {"audio_seconds": sum(durations)/1000, "asr_elapsed_seconds": asr_seconds,
             "transcript_characters": len(transcript["text"]), "summary_characters": len(summary["content"]),
-            "total_seconds": round(time.monotonic()-started, 3), "chunks": 2, "container": "M4A/AAC",
+            "total_seconds": round(time.monotonic()-started, 3), "chunks": 2, "container": "WAV/PCM" if args.pcm else "M4A/AAC",
+            "chunk_bytes": [len(data) for data in payloads], "https_base": args.base,
+            "resumed_after_timeout": bool(args.resume_session), "idempotent_chunk_repeats": True,
             "asr_model": "v3_e2e_rnnt", "llm_model": settings.ollama_model,
             "worker_generation_unchanged": True, "qwen_attempts": 1}
         checked(client.delete(prefix + "/folders/" + folder["id"], params={"mode": "with_contents", "confirm": True}), 204)
@@ -129,4 +136,10 @@ if __name__ == "__main__":
     parser.add_argument("--audio", type=Path, required=True)
     parser.add_argument("--chunk-seconds", type=int, default=300)
     parser.add_argument("--report", type=Path)
-    run(parser.parse_args())
+    parser.add_argument("--pcm", action="store_true", help="Use larger uncompressed WAV chunks to verify proxy streaming")
+    parser.add_argument("--resume-session", help="Reuse a diagnostic session after a lost upload response")
+    parser.add_argument("--resume-folder")
+    args=parser.parse_args()
+    if bool(args.resume_session) != bool(args.resume_folder):
+        parser.error("Both resume identifiers are required")
+    run(args)

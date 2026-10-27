@@ -1,7 +1,9 @@
 from pathlib import Path
+from datetime import datetime, timezone
+import re
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
@@ -13,6 +15,22 @@ class Settings(BaseSettings):
     database_url: str = Field("", repr=False)
     test_database_url: str = Field("", repr=False)
     auth_secret: str = Field("", repr=False)
+    demo_enabled: bool = False
+    demo_secret: str = Field("", repr=False)
+    demo_expires_at: datetime | None = None
+    backend_lan_enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_demo_configuration(self):
+        if self.demo_enabled:
+            if not re.fullmatch(r"[A-Za-z0-9_-]{43,256}", self.demo_secret):
+                raise ValueError("DEMO_SECRET must contain 43-256 random URL-safe characters")
+            expiry = self.demo_expires_at
+            if expiry is None or expiry.tzinfo is None or expiry.utcoffset() is None:
+                raise ValueError("DEMO_EXPIRES_AT must be an explicit timezone-aware timestamp")
+            if expiry <= datetime.now(timezone.utc):
+                raise ValueError("DEMO_EXPIRES_AT must be in the future")
+        return self
     auth_admin_emails: list[str] = Field(default_factory=list)
     auth_legacy_admin_email: str = ""
     smtp_host: str = ""

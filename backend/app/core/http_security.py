@@ -1,6 +1,8 @@
 """Bound HTTP input before JSON buffering; require bearer presence before reading private input."""
 from starlette.responses import JSONResponse
+from fastapi import HTTPException
 from app.core.config import settings
+from app.services.demo_access import DemoRateLimiter, DISABLED_AUTH_PATHS, check_key, fail
 
 
 class PayloadTooLarge(Exception):
@@ -10,14 +12,34 @@ class PayloadTooLarge(Exception):
 class RequestBoundary:
     def __init__(self, app):
         self.app = app
+        self.demo_limiter = DemoRateLimiter()
 
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
         path = scope.get('path', '')
         headers = dict(scope.get('headers', []))
+        if settings.demo_enabled:
+            try:
+                keys = [value for name, value in scope.get('headers', []) if name == b'x-demo-key']
+                credential = keys[0] if len(keys) == 1 else (b'!' if keys else None)
+                error = None
+                try:
+                    check_key(credential)
+                except HTTPException as exc:
+                    error = exc
+                client = scope.get('client')
+                self.demo_limiter.check(str(client[0]) if client else 'unknown', error is None)
+                if error is not None:
+                    raise error
+                if path.rstrip('/') in DISABLED_AUTH_PATHS:
+                    fail(403, 'auth_unavailable_demo')
+            except HTTPException as exc:
+                response = JSONResponse({'error': exc.detail}, status_code=exc.status_code,
+                                        headers=exc.headers)
+                return await response(scope, receive, send)
         public = path in ('/api/v1/auth/request-code','/api/v1/auth/verify-code','/api/v1/auth/refresh')
-        if (path.startswith('/api/v1/') and not public) or path in ('/docs','/redoc','/openapi.json'):
+        if not settings.demo_enabled and ((path.startswith('/api/v1/') and not public) or path in ('/docs','/redoc','/openapi.json')):
             bearer = headers.get(b'authorization', b'')
             if not bearer.lower().startswith(b'bearer ') or len(bearer) <= 7:
                 response = JSONResponse({'error':{'code':'authentication_required','message':'Требуется вход в аккаунт.','details':{}}},
