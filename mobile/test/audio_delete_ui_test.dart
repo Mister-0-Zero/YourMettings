@@ -1,3 +1,5 @@
+import 'package:your_mettings/features/recording/recorder_page.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -121,4 +123,117 @@ void main() {
       },
     );
   }
+  testWidgets(
+    'confirmed local cleanup failure is visible in drafts and retries without deleting again',
+    (tester) async {
+      final repo = AudioDraftRepository();
+      final rec = fixture.Recorder()
+        ..failRelease = true
+        ..state = {
+          'id': 'A',
+          'key': 'key-A',
+          'phase': 'review',
+          'session': {'transcript_id': 'source-A', 'boundary_warnings': []},
+        };
+      var deletes = 0;
+      Future<http.Response> backend(http.Request r) async {
+        if (r.method == 'DELETE') {
+          deletes++;
+          return http.Response('', 204);
+        }
+        return fixture.response({'items': []});
+      }
+
+      final api = ApiClient(
+        Uri.parse('http://example/api/v1/'),
+        client: MockClient(backend),
+      );
+      final review = AudioReviewController(
+        api,
+        fixture.MemoryStore(),
+        rec,
+        drafts: repo,
+        audioApiFactory: () =>
+            AudioApi(api.baseUri, client: MockClient(backend)),
+      );
+      await review.saveDraft(fixture.entry('A').recovery.draft);
+      expect(await review.deleteMeeting(), isFalse);
+      expect(repo['A']!.serverDeleted, isTrue);
+      expect(rec.handoffPending, isTrue);
+      await tester.pumpWidget(
+        YourMettingsApp(recorder: rec, audioReview: review, drafts: repo),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Пространство'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('workspace-drafts')));
+      await tester.pumpAndSettle();
+      expect(find.text('Завершить удаление'), findsOneWidget);
+      rec.failRelease = false;
+      await tester.tap(find.text('Завершить удаление'));
+      await tester.pumpAndSettle();
+      expect(repo['A'], isNull);
+      expect(deletes, 1);
+      expect(find.text('Сохранённых черновиков пока нет.'), findsOneWidget);
+      expect(rec.active, isFalse);
+      expect(rec.handoffPending, isFalse);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Новая встреча'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Записать встречу'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      review.dispose();
+      rec.dispose();
+      repo.dispose();
+      api.close();
+    },
+  );
+  testWidgets(
+    'done journal with pending cleanup has a visible recovery action',
+    (tester) async {
+      final repo = AudioDraftRepository();
+      final saved = fixture
+          .entry('A')
+          .copy(serverDeleted: true, deletePending: true, handoff: true);
+      await repo.put(saved);
+      final rec = fixture.Recorder()
+        ..state = {'phase': 'done'}
+        ..handoffPending = true;
+      final api = ApiClient(Uri.parse('http://example/api/v1/'));
+      final review = AudioReviewController(
+        api,
+        fixture.MemoryStore(),
+        rec,
+        drafts: repo,
+      )..recovery = saved.recovery;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RecorderPage(recorder: rec, review: review),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Завершить операцию'), findsOneWidget);
+      await tester.ensureVisible(find.text('Завершить операцию'));
+      await tester.tap(find.text('Завершить операцию'));
+      await tester.pumpAndSettle();
+      expect(repo['A'], isNull);
+      expect(rec.handoffPending, isFalse);
+      expect(find.text('Завершить операцию'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      review.dispose();
+      rec.dispose();
+      repo.dispose();
+      api.close();
+    },
+  );
 }

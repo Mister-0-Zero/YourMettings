@@ -58,7 +58,9 @@ class _TranscriptPageState extends State<TranscriptPage> {
     super.initState();
     widget.controller.addListener(_operationChanged);
     _pageScroll.addListener(_updateJumpVisibility);
-    if (widget.controller.selectionActive) {
+    if (widget.controller.selectionActive &&
+        !(widget.controller is AudioReviewController &&
+            (widget.controller as AudioReviewController).deletionPending)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openSelection();
       });
@@ -108,18 +110,67 @@ class _TranscriptPageState extends State<TranscriptPage> {
   String? _inputError;
   bool _importing = false;
   bool _recordStarting = false;
-  Future<void> _save() => widget.controller.saveDraft(
-    Draft(
-      text: _text.text,
-      title: _title.text,
-      folderIds: [..._folderIds],
-      options: _options,
-    ),
-  );
+  Future<void> _save() {
+    if (widget.controller is AudioReviewController &&
+        (widget.controller as AudioReviewController).deletionPending) {
+      return Future.value();
+    }
+    return widget.controller.saveDraft(
+      Draft(
+        text: _text.text,
+        title: _title.text,
+        folderIds: [..._folderIds],
+        options: _options,
+      ),
+    );
+  }
+
+  Future<void> _finishDeletion() async {
+    final completed = await (widget.controller as AudioReviewController)
+        .deleteMeeting();
+    if (!mounted || !completed) return;
+    setState(() => _allowExit = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+  }
 
   Future<void> _cancelCreation() async {
     if (_cancelling || widget.controller.working) return;
     final review = widget.controller as AudioReviewController;
+    if (review.deletionPending) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Завершить удаление?'),
+          content: const Text(
+            'Операция сохранена в «Черновиках». Её можно безопасно завершить сейчас или вернуться к ней позже.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Остаться'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'later'),
+              child: const Text('Вернуться позже'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, 'finish'),
+              child: const Text('Завершить удаление'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || choice == null) return;
+      if (choice == 'finish') {
+        await _finishDeletion();
+        return;
+      }
+      setState(() => _allowExit = true);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+      return;
+    }
     final alreadyDeleted = review.serverDeleted;
     final choice = await showDialog<String>(
       context: context,
@@ -430,6 +481,33 @@ class _TranscriptPageState extends State<TranscriptPage> {
         animation: widget.controller,
         builder: (context, _) {
           final controller = widget.controller;
+          if (controller is AudioReviewController &&
+              controller.deletionPending) {
+            return Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      controller.serverDeleted
+                          ? 'Встреча удалена на сервере. Осталось завершить очистку на устройстве.'
+                          : 'Подтверждение удаления ещё не получено. Данные на устройстве сохранены.',
+                    ),
+                    if (controller.error != null) ...[
+                      const SizedBox(height: 16),
+                      Text(controller.error!),
+                    ],
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: controller.working ? null : _finishDeletion,
+                      child: const Text('Завершить удаление'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
           if (controller.selectionActive) {
             return Center(
               child: Padding(
@@ -472,7 +550,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                         controller.working ||
                         _cancelling ||
                         (controller is AudioReviewController &&
-                            controller.serverDeleted),
+                            controller.deletionPending),
                     onChanged: (_) => _save(),
                     maxLength: 200,
                     decoration: const InputDecoration(
@@ -499,7 +577,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                           controller.working ||
                           _cancelling ||
                           (controller is AudioReviewController &&
-                              controller.serverDeleted),
+                              controller.deletionPending),
                       onChanged: (_) => _save(),
                       minLines: 8,
                       maxLines: 18,
@@ -633,7 +711,7 @@ class _TranscriptPageState extends State<TranscriptPage> {
                             controller.working ||
                             _cancelling ||
                             (controller is AudioReviewController &&
-                                controller.serverDeleted),
+                                controller.deletionPending),
                         minLines: 3,
                         maxLines: 6,
                         maxLength: 2000,

@@ -157,6 +157,12 @@ class _AudioDraftsPageState extends State<AudioDraftsPage> {
     setState(() => _opening = entry.sessionId);
     AudioReviewController? owned;
     try {
+      if (entry.deletePending || entry.serverDeleted) {
+        if (!await widget.review!.retryDeletion(entry.sessionId)) {
+          throw StateError('Deletion cleanup incomplete');
+        }
+        return;
+      }
       if (entry.handoff) {
         await widget.review!.recoverHandoffs();
         final remaining = widget.drafts![entry.sessionId];
@@ -204,7 +210,7 @@ class _AudioDraftsPageState extends State<AudioDraftsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              widget.review!.storageError ?? 'Не удалось открыть черновик. Данные не удалены; повторите действие.',
+              widget.review!.storageError ?? widget.review!.error ?? 'Не удалось открыть черновик. Данные не удалены; повторите действие.',
             ),
           ),
         );
@@ -248,10 +254,10 @@ class _AudioDraftsPageState extends State<AudioDraftsPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Text(
-                    entry.handoff
+                    entry.serverDeleted || entry.deletePending
+                        ? 'Завершить удаление'
+                        : entry.handoff
                         ? 'Завершить сохранение'
-                        : entry.deletePending
-                        ? 'Удаление не завершено — повторить'
                         : widget
                                   .review
                                   ?.api

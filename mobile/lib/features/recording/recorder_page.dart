@@ -33,7 +33,9 @@ class _RecorderPageState extends State<RecorderPage> {
 
   void _changed() {
     if (mounted) setState(() {});
-    if (['review', 'completed'].contains(widget.recorder.phase) &&
+    if (!widget.review.deletionPending &&
+        !widget.recorder.handoffPending &&
+        ['review', 'completed'].contains(widget.recorder.phase) &&
         !_opening &&
         mounted) {
       unawaited(_review());
@@ -147,12 +149,49 @@ class _RecorderPageState extends State<RecorderPage> {
               'Используйте только неконфиденциальные тестовые данные.',
             ),
             const SizedBox(height: 32),
+            if (recorder.handoffPending && !widget.review.deletionPending) ...[
+              const Text(
+                'Есть незавершённая операция. Завершите её здесь или в разделе «Черновики».',
+              ),
+              FilledButton(
+                onPressed: widget.review.working || recorder.busy
+                    ? null
+                    : () async {
+                        await widget.review.recoverHandoffs();
+                        if (mounted) setState(() {});
+                      },
+                child: const Text('Завершить операцию'),
+              ),
+              const SizedBox(height: 16),
+            ],
+            if (widget.review.deletionPending) ...[
+              Text(
+                widget.review.serverDeleted
+                    ? 'Встреча удалена на сервере. Осталось освободить диктофон.'
+                    : 'Удаление встречи ещё не завершено.',
+              ),
+              FilledButton(
+                onPressed: widget.review.working || recorder.busy
+                    ? null
+                    : () async {
+                        await widget.review.deleteMeeting();
+                        if (mounted) setState(() {});
+                      },
+                child: const Text('Завершить удаление'),
+              ),
+              const SizedBox(height: 16),
+            ],
             if (['empty', 'done', 'preparing'].contains(phase)) ...[
               _microphone(
                 context,
                 recording: false,
                 paused: false,
-                onPressed: recorder.busy ? null : _start,
+                onPressed:
+                    recorder.busy ||
+                        recorder.handoffPending ||
+                        widget.review.deletionPending
+                    ? null
+                    : _start,
               ),
               if (recorder.busy) ...[
                 const SizedBox(height: 24),

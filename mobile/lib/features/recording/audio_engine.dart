@@ -23,8 +23,10 @@ class AudioEngine {
     this.meterChanged,
     MicrophoneCapture? capture,
     this.allowCapture = true,
+    this.maintenanceRequired,
   }) : recorder = capture ?? RecordMicrophone();
   final bool allowCapture;
+  final Future<bool> Function()? maintenanceRequired;
   final AudioJournal journal;
   final AudioApi api;
   final void Function(Json)? changed;
@@ -124,6 +126,10 @@ class AudioEngine {
   Future<void> initialize() async {
     await journal.load();
     if (journal.data.isEmpty || journal.data['id'] == null) {
+      emit();
+      return;
+    }
+    if (await maintenanceRequired?.call() == true) {
       emit();
       return;
     }
@@ -323,6 +329,7 @@ class AudioEngine {
     _idle = Completer<void>();
     if (force) journal.data.remove('blocked');
     try {
+      if (await maintenanceRequired?.call() == true) return;
       final id = journal.data['id'] as String;
       for (final chunk in List<Json>.of(journal.chunks)) {
         if (chunk['acked'] == true) {
@@ -448,7 +455,7 @@ class AudioEngine {
   }
 
   Future<void> retryAsr() async {
-    if (_syncing) return;
+    if (_syncing || await maintenanceRequired?.call() == true) return;
     try {
       await api.json('POST', '/${journal.data['id']}/retry', body: {});
       await sync(force: true);

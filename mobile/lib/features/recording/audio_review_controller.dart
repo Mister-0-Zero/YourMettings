@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -57,7 +59,9 @@ class AudioReviewController extends MeetingController {
   Future<void> openReview() async {
     _boundSessionId ??= fixedSessionId ?? recorder.state['id'] as String;
     if (deletionPending) {
-      error = 'Удаление ещё не подтверждено. Повторите «Удалить встречу»; обработка Qwen заблокирована.';
+      error = serverDeleted
+          ? 'Сервер удалил встречу. Завершите очистку на устройстве.'
+          : 'Удаление ещё не подтверждено. Повторите удаление; обработка Qwen заблокирована.';
       _signal();
       return;
     }
@@ -105,20 +109,40 @@ class AudioReviewController extends MeetingController {
     );
   }
 
+  bool _ownsLegacyReview(SavedAudioDraft entry, {bool journalMatches = false}) {
+    if (recovery.operation != null &&
+        recovery.operation!.id != entry.transcriptId) {
+      return false;
+    }
+    if (fixedSessionId != null) return fixedSessionId == entry.sessionId;
+    if (_boundSessionId != null) return _boundSessionId == entry.sessionId;
+    if (recovery.operation != null) {
+      return recovery.operation!.id == entry.transcriptId;
+    }
+    return journalMatches ||
+        jsonEncode(recovery.toJson()) == jsonEncode(entry.recovery.toJson());
+  }
+
+  void _cleanupLog(String stage, Object e) {
+    final code =
+        e is ApiException && RegExp(r'^[a-z0-9_]{1,64}$').hasMatch(e.code)
+        ? e.code
+        : 'local';
+    debugPrint('AudioCleanup: stage=$stage type=${e.runtimeType} code=$code');
+  }
+
   Future<void> _completeHandoff(SavedAudioDraft entry) async {
     final repository = drafts!;
     recorder.handoffPending = true;
-    // A different active recording must never be touched by an old checkpoint.
-    var clearedActive = false;
-    if (recorder.state['id'] == entry.sessionId || !recorder.active) {
-      if (recovery.operation != null &&
-          recovery.operation!.id != entry.transcriptId) {
-        throw StateError('Another accepted operation owns the legacy store');
-      }
+    final journalMatches = recorder.state['id'] == entry.sessionId;
+    final clearedActive = _ownsLegacyReview(
+      entry,
+      journalMatches: journalMatches,
+    );
+    if (journalMatches || !recorder.active) {
       await recorder.releaseReview(entry.sessionId);
-      await store.save(RecoveryState());
-      clearedActive = true;
     }
+    if (clearedActive) await store.save(RecoveryState());
     if (entry.serverDeleted) {
       await repository.remove(entry.sessionId);
     } else {
@@ -134,23 +158,47 @@ class AudioReviewController extends MeetingController {
       _boundSessionId = null;
       _session = null;
       boundariesReviewed = false;
+    } else if (_boundSessionId == entry.sessionId) {
+      _boundSessionId = null;
+      _session = null;
+      boundariesReviewed = false;
     }
     recorder.handoffPending = repository.hasHandoff;
   }
 
-  /// Replays only durable checkpoints, never creates a session or starts Qwen.
+  /// Replays durable intent only: repeat DELETE, never infer deletion from GET 404.
   Future<void> recoverHandoffs() async {
-    if (drafts == null || fixedSessionId != null) return;
+    if (drafts == null || fixedSessionId != null || working) return;
+    working = true;
+    _signal();
+    var failed = false;
     recorder.handoffPending = drafts!.hasHandoff;
-    for (final entry in drafts!.items.where((e) => e.handoff)) {
+    for (var entry in drafts!.items.where(
+      (e) => e.handoff || e.deletePending || e.serverDeleted,
+    )) {
       try {
+        if (entry.deletePending && !entry.serverDeleted) {
+          await withAudioApi((client) => client.deleteSession(entry.sessionId));
+          await drafts!.update(
+            entry.sessionId,
+            (value) => value.copy(serverDeleted: true, handoff: true),
+          );
+          entry = drafts![entry.sessionId]!;
+        }
         await _completeHandoff(entry);
-        storageError = null;
-      } catch (_) {
-        storageError = 'Не удалось завершить сохранение черновика. Повторите в «Пространстве».';
+      } catch (e) {
+        failed = true;
+        _cleanupLog(
+          entry.deletePending ? 'recover_delete' : 'recover_handoff',
+          e,
+        );
       }
     }
+    storageError = failed
+        ? 'Есть незавершённая операция. Откройте «Черновики» и повторите завершение.'
+        : null;
     recorder.handoffPending = drafts!.hasHandoff;
+    working = false;
     _signal();
   }
 
@@ -176,49 +224,74 @@ class AudioReviewController extends MeetingController {
 
   Future<bool> deleteMeeting() async {
     if (working || hasOperation || drafts == null) return false;
+    return _delete(sessionId, existingOnly: false);
+  }
+
+  Future<bool> retryDeletion(String id) async {
+    if (working || drafts == null) return false;
+    return _delete(id, existingOnly: true);
+  }
+
+  Future<bool> _delete(String id, {required bool existingOnly}) async {
     working = true;
     error = null;
     storageError = null;
+    var stage = 'intent';
+    var serverConfirmed = drafts?[id]?.serverDeleted == true;
     _signal();
     try {
-      await cancelOpenSelection();
-      var entry = drafts![sessionId];
-      // Persist intent before HTTP. A lost reply must not permit confirm/POST.
-      if (entry?.serverDeleted != true) {
+      var entry = drafts![id];
+      if (existingOnly &&
+          entry?.deletePending != true &&
+          entry?.serverDeleted != true) {
+        throw StateError('No confirmed deletion intent');
+      }
+      if (entry?.deletePending != true && entry?.serverDeleted != true) {
+        await cancelOpenSelection();
         await drafts!.put(_snapshot(handoff: false, deleting: true));
-        await withAudioApi((client) => client.deleteSession(sessionId));
+      }
+      if (!serverConfirmed) {
+        stage = 'server_delete';
+        await withAudioApi((client) => client.deleteSession(id));
+        serverConfirmed = true;
+        stage = 'server_receipt';
         await drafts!.update(
-          sessionId,
-          (value) =>
-              value.copy(serverDeleted: true, handoff: fixedSessionId == null),
+          id,
+          (value) => value.copy(serverDeleted: true, handoff: true),
         );
       }
-      entry = drafts![sessionId]!;
-      if (fixedSessionId == null) {
-        await _completeHandoff(entry);
-      } else {
-        await drafts!.remove(sessionId);
-      }
+      stage = 'local_release';
+      entry = drafts![id]!;
+      await _completeHandoff(entry);
       return true;
     } catch (e) {
-      // A definite rejection did not delete anything; ambiguous network/5xx
-      // keeps the intent so confirm can never race an uncertain deletion.
-      if (e is ApiException &&
+      _cleanupLog(stage, e);
+      if (!serverConfirmed &&
+          e is ApiException &&
           !e.isNetwork &&
           e.statusCode != null &&
           e.statusCode! >= 400 &&
           e.statusCode! < 500 &&
-          drafts![sessionId] != null) {
+          drafts![id] != null) {
         try {
-          await drafts!.update(
-            sessionId,
-            (value) => value.copy(deletePending: false),
-          );
-        } catch (_) {}
+          await drafts!.update(id, (value) => value.copy(deletePending: false));
+        } catch (writeError) {
+          _cleanupLog('reject_checkpoint', writeError);
+        }
       }
-      error = e is ApiException
-          ? '${e.message} Данные на устройстве сохранены. Удаление можно повторить.'
-          : 'Не удалось подтвердить удаление и очистить локальное состояние. Повторите действие; данные сохранены.';
+      error = serverConfirmed
+          ? 'Сервер удалил встречу. Не удалось завершить очистку на устройстве. Нажмите «Завершить удаление»; повтор безопасен.'
+          : stage == 'intent'
+          ? 'Не удалось сохранить операцию удаления на устройстве. Данные сохранены; повторите действие.'
+          : 'Подтверждение удаления не получено. Данные на устройстве сохранены; повторите удаление той же встречи.';
+      if (!serverConfirmed &&
+          e is ApiException &&
+          e.statusCode != null &&
+          e.statusCode! >= 400 &&
+          e.statusCode! < 500) {
+        error = '${e.message} Данные на устройстве сохранены.';
+      }
+      recorder.handoffPending = drafts!.hasHandoff;
       return false;
     } finally {
       working = false;
