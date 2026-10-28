@@ -16,12 +16,14 @@ Caddy 2.11.7 установлен из официального подписан
 
 ## Воспроизведение VPS
 
-Конфиги: deploy/demo/Caddyfile, Caddyfile.bootstrap, setup-vps.sh, update-tunnel-qos.sh, close-public.sh. Скопировать **только эти файлы** в /home/alexey/yourmettings-deploy через существующий SSH/SCP, затем:
+Конфиги: deploy/demo/Caddyfile, Caddyfile.bootstrap, setup-vps.sh, update-tunnel-qos.sh, update-tunnel-liveness.sh, close-public.sh. Скопировать **только эти файлы** в /home/alexey/yourmettings-deploy через существующий SSH/SCP, затем:
 
 ```sh
 sudo sh /home/alexey/yourmettings-deploy/setup-vps.sh
 # При необходимости обновления существующего блока SSH:
 sudo sh /home/alexey/yourmettings-deploy/update-tunnel-qos.sh
+# Обязательно для развёртываний до 28 октября: освобождение зависших listener.
+sudo sh /home/alexey/yourmettings-deploy/update-tunnel-liveness.sh
 ```
 
 setup создаёт приватные резервные копии в /var/backups/yourmettings-demo-<UTC>. Предварительно проверяет sshd -t, эффективный запрет root/password, ограничение listener и nft -c; правило SSH 22 сохраняется. Начальный шлюз отдаёт 503 bootstrap, не проксирует данные. Только после локальной проверки DemoKey и отдельного аккаунта активировать:
@@ -90,3 +92,13 @@ sudo sh /home/alexey/yourmettings-deploy/close-public.sh
 ## Что проверять перед показом
 
 Не ограничиваться health. Нужны: доверенный TLS, запрет без/с неверным ключом, доступ только demo-данным, загрузка/повтор крупного фрагмента, complete/ASR/review/confirm/Qwen, один summary, сохранность прежних записей и восстановление после остановки SSH-child. Полный мобильный тест с сотовой сетью выполняется после доработки Flutter, см. FLUTTER_DEMO_HANDOFF.md. Результаты фактической проверки — DEMO_REMOTE_RESULT.md.
+
+## Исправление восстановления после reboot/VPN — 28 октября 2026
+
+После входа Windows туннель может подключиться раньше AmneziaVPN. Если маршрут затем меняется, клиент теряет связь, а VPS без server keepalive продолжает удерживать старый reverse listener 18000. Новая попытка получает `remote port forwarding failed for listen port 18000`. Это не конфликт с backend и не повод завершать все SSH-процессы.
+
+Для managed Match User alexey теперь включены **ClientAliveInterval 15 / ClientAliveCountMax 3**. VPS проверяет клиента и освобождает умершие сессии примерно за 45–60 секунд; затем Windows supervisor подключается в очередную попытку (до 30 секунд). Клиентские ServerAliveInterval/CountMax также сохранены. Настройки VPN, маршрутов и Windows Firewall не меняются.
+
+Применение к существующему серверу: загрузить `update-tunnel-liveness.sh` и выполнить его через sudo. Скрипт сохраняет backup, проверяет sshd -t и эффективные значения auth/listener/keepalive, затем reload SSH. **Ранее открытые соединения не наследуют новый keepalive**; они должны переподключиться. При первоначальном ремонте завершена только проверенная зависшая сессия нашего reverse listener, административные SSH-соединения сохранены. Не копировать PID из старого отчёта для последующих остановок.
+
+PostgreSQL/GigaAM/Ollama/backend запускаются существующим ярлыком; задача туннеля AtLogon запускает только туннель. Если после reboot не запускали домашние сервисы, сначала нажать ярлык. При возвращении сети подождать завершения keepalive/reconnect, затем проверить HTTPS с ключом. Смена маршрута не требует повторной установки задачи.

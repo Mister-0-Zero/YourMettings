@@ -38,6 +38,8 @@ Match User alexey
     PermitListen 127.0.0.1:18000
     GatewayPorts no
     IPQoS none
+    ClientAliveInterval 15
+    ClientAliveCountMax 3
 # END YOURMETTINGS DEMO TUNNEL
 EOF
     sshd -t -f "$BACKUP/sshd-new"
@@ -46,6 +48,8 @@ EOF
     grep -qx 'permitrootlogin no' "$BACKUP/sshd-new-effective.txt"
     grep -qx 'allowtcpforwarding remote' "$BACKUP/sshd-new-effective.txt"
     grep -qx 'permitlisten 127.0.0.1:18000' "$BACKUP/sshd-new-effective.txt"
+    grep -qx 'clientaliveinterval 15' "$BACKUP/sshd-new-effective.txt"
+    grep -qx 'clientalivecountmax 3' "$BACKUP/sshd-new-effective.txt"
     install -m 644 "$BACKUP/sshd-new" /etc/ssh/sshd_config
     systemctl reload ssh
 fi
