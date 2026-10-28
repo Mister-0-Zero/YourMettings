@@ -7,6 +7,7 @@ import '../new_meeting/transcript_page.dart';
 import 'audio_review_controller.dart';
 import 'recorder_coordinator.dart';
 import 'audio_wave.dart';
+import 'audio_transfer_status.dart';
 
 class RecorderPage extends StatefulWidget {
   const RecorderPage({super.key, required this.recorder, required this.review});
@@ -273,6 +274,8 @@ class _RecorderPageState extends State<RecorderPage> {
                       : 'Отправить сохранённую запись',
                 ),
               ),
+            ] else if (['sending', 'transcribing'].contains(phase)) ...[
+              AudioTransferStatus(snapshot: recorder.state),
             ] else ...[
               if (phase != 'failed')
                 const Center(child: CircularProgressIndicator()),
@@ -280,8 +283,6 @@ class _RecorderPageState extends State<RecorderPage> {
               Text(
                 phase == 'failed'
                     ? 'Не удалось распознать речь'
-                    : phase == 'sending'
-                    ? 'Сохраняем запись…'
                     : 'Распознаём речь…',
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
@@ -304,22 +305,38 @@ class _RecorderPageState extends State<RecorderPage> {
                   child: const Text('Открыть транскрипт'),
                 ),
             ],
-            for (final message in [
-              recorder.error,
-              recorder.state['message'],
-              recorder.state['upload_error'],
-            ])
+            if (![
+                  'empty',
+                  'done',
+                  'preparing',
+                  'sending',
+                  'transcribing',
+                  'review',
+                  'completed',
+                ].contains(phase) &&
+                ((recorder.state['chunks'] as List? ?? []).isNotEmpty ||
+                    recorder.state['upload_error'] != null)) ...[
+              const SizedBox(height: 16),
+              AudioTransferStatus(snapshot: recorder.state),
+            ],
+            for (final message in [recorder.error, recorder.state['message']])
               if (message is String)
                 Padding(
                   padding: const EdgeInsets.only(top: 16),
                   child: Text(message),
                 ),
-            if (recorder.state['upload_error'] != null)
+            if (recorder.state['upload_error'] != null &&
+                recorder.state['sync_stage'] == null)
               TextButton(
-                onPressed: recorder.busy
+                onPressed:
+                    recorder.busy || recorder.state['sync_active'] == true
                     ? null
                     : () => recorder.command('retry'),
-                child: const Text('Повторить отправку'),
+                child: Text(
+                  phase == 'transcribing'
+                      ? 'Повторить проверку'
+                      : 'Повторить отправку',
+                ),
               ),
           ],
         ),

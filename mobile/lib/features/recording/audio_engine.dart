@@ -45,11 +45,15 @@ class AudioEngine {
   Completer<void>? _idle;
   bool _captureFailed = false;
   bool _syncing = false, _command = false, _stopping = false, _disposed = false;
+  String? _syncStage;
   int _failures = 0;
   DateTime _nextAttempt = DateTime.fromMillisecondsSinceEpoch(0);
   void log(String event) => debugPrint('Audio: $event');
   Json get snapshot => {
     ...journal.data,
+    // Live telemetry must not survive a process restart in the journal.
+    'sync_active': _syncing,
+    'sync_stage': _syncStage,
     'level': phase == 'recording' ? writer?.level ?? 0.0 : 0.0,
     'elapsed_ms': writer?.elapsedMs ?? journal.data['closed_ms'] ?? 0,
   };
@@ -315,6 +319,22 @@ class AudioEngine {
     unawaited(sync(force: true));
   }
 
+  void _transportSucceeded() {
+    if (_failures > 0 || journal.data['network_error'] == true) {
+      log('network_restored');
+    }
+    _failures = 0;
+    _nextAttempt = DateTime.fromMillisecondsSinceEpoch(0);
+    journal.data.remove('network_error');
+    journal.data.remove('upload_error');
+    journal.data.remove('blocked');
+  }
+
+  void _stage(String value) {
+    _syncStage = value;
+    emit();
+  }
+
   Future<void> sync({bool force = false}) async {
     if (_disposed ||
         ['completed', 'done'].contains(phase) ||
@@ -337,6 +357,7 @@ class AudioEngine {
           if (await acknowledged.exists()) await acknowledged.delete();
           continue;
         }
+        _stage('uploading');
         final file = journal.chunkFile(chunk['sequence'] as int);
         final hash = (await sha256.bind(file.openRead()).first).toString();
         log('upload_start sequence=${chunk['sequence']}');
@@ -354,6 +375,7 @@ class AudioEngine {
           );
         }
         chunk['acked'] = true;
+        _transportSucceeded();
         try {
           save();
         } catch (_) {
@@ -366,6 +388,7 @@ class AudioEngine {
       if (phase == 'sending' &&
           journal.chunks.isNotEmpty &&
           journal.chunks.every((c) => c['acked'] == true)) {
+        _stage('completing');
         final session = await api.json(
           'POST',
           '/$id/complete',
@@ -374,10 +397,12 @@ class AudioEngine {
         if (_disposed) return;
         journal.data['session'] = session;
         journal.data['phase'] = 'transcribing';
+        _transportSucceeded();
         save();
         log('complete_ack');
       }
       if (['transcribing', 'review', 'completed', 'failed'].contains(phase)) {
+        _stage('polling');
         final session = await api.json('GET', '/$id');
         if (_disposed) return;
         final previousPhase = phase;
@@ -389,13 +414,9 @@ class AudioEngine {
           _ => 'transcribing',
         };
         if (previousPhase != phase) log('asr_state $phase');
+        _transportSucceeded();
         save();
       }
-      if (_failures > 0) log('network_restored');
-      _failures = 0;
-      journal.data.remove('network_error');
-      journal.data.remove('upload_error');
-      save();
     } catch (e) {
       if (_disposed) return;
       _failures++;
@@ -404,14 +425,25 @@ class AudioEngine {
       );
       final transient = e is ApiException && e.retryable;
       journal.data['network_error'] = transient;
-      journal.data['upload_error'] = 'Запись сохранена на устройстве. Отправим её, когда соединение восстановится';
+      final transferred =
+          journal.chunks.isNotEmpty &&
+          journal.chunks.every((chunk) => chunk['acked'] == true);
+      final location = transferred
+          ? 'Все фрагменты аудио приняты сервером.'
+          : 'Неотправленные фрагменты сохранены на устройстве.';
+      journal.data['upload_error'] = _syncStage == 'polling'
+          ? '$location Не удалось проверить распознавание. Повторим автоматически.'
+          : _syncStage == 'completing'
+          ? '$location Не удалось подтвердить завершение отправки. Повторим автоматически.'
+          : '$location Отправка временно не удалась. Повторим автоматически.';
       if (!transient) {
         journal.data['blocked'] = true;
         journal.data['upload_error'] = e is ApiException
-            ? '${e.message} Аудио сохранено на устройстве.'
-            : 'Не удалось отправить запись. Аудио сохранено на устройстве. Повторите отправку.';
+            ? '${e.message} $location'
+            : 'Не удалось выполнить действие. $location Повторите попытку.';
       }
-      log('upload_retry transient=$transient');
+      log('upload_retry transient=$transient stage=$_syncStage');
+      _syncStage = null;
       try {
         save();
       } catch (_) {
@@ -420,6 +452,7 @@ class AudioEngine {
       }
     } finally {
       _syncing = false;
+      _syncStage = null;
       _idle?.complete();
       emit();
     }

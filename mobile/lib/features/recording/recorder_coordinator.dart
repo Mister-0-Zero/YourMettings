@@ -59,6 +59,20 @@ bool recorderCommandMatches(
     data['service_instance'] == instance &&
     data['session_id'] == sessionId;
 
+/// Never shut down the owner while a retry/complete/poll is in flight.
+@visibleForTesting
+bool audioServiceCanStop(Json snapshot) =>
+    snapshot['sync_active'] != true &&
+    ([
+          'interrupted',
+          'transcribing',
+          'review',
+          'completed',
+          'failed',
+          'done',
+        ].contains(snapshot['phase']) ||
+        (snapshot['phase'] == 'sending' && snapshot['network_error'] == true));
+
 class _AudioTask extends TaskHandler {
   AudioEngine? engine;
   late String _scope, _owner;
@@ -113,16 +127,7 @@ class _AudioTask extends TaskHandler {
   @override
   void onRepeatEvent(DateTime timestamp) {
     engine?.emit();
-    final phase = engine?.phase;
-    if ([
-          'interrupted',
-          'transcribing',
-          'review',
-          'completed',
-          'failed',
-          'done',
-        ].contains(phase) ||
-        (phase == 'sending' && engine?.journal.data['network_error'] == true)) {
+    if (engine != null && audioServiceCanStop(engine!.snapshot)) {
       unawaited(FlutterForegroundTask.stopService());
     }
   }
