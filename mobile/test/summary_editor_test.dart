@@ -66,6 +66,13 @@ void main() {
     final api = ApiClient(
       Uri.parse('http://example/api/v1/'),
       client: MockClient((request) async {
+        if (request.method == 'GET') {
+          return response({
+            ...summaryJson,
+            'content': 'First',
+            'version': serverVersion,
+          });
+        }
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         bodies.add(body);
         if (body['expected_version'] != serverVersion) {
@@ -168,6 +175,7 @@ void main() {
     final api = ApiClient(
       Uri.parse('http://localhost/api/v1/'),
       client: MockClient((request) async {
+        if (request.method == 'GET') return response(summaryJson);
         attempts++;
         if (attempts == 1) {
           return response({

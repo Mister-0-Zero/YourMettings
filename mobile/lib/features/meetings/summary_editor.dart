@@ -28,7 +28,11 @@ class SummaryEditor extends ChangeNotifier {
   bool _autosavePaused = false;
   Timer? _timer;
   Future<bool>? _inFlight;
-  bool get dirty => title.trim() != _savedTitle || content != _savedContent;
+  ({String title, String content, String? version})? _uncertainSave;
+  bool get dirty =>
+      _uncertainSave != null ||
+      title.trim() != _savedTitle ||
+      content != _savedContent;
   void _notify() {
     if (!_disposed) notifyListeners();
   }
@@ -89,22 +93,75 @@ class SummaryEditor extends ChangeNotifier {
     return false;
   }
 
+  bool _matches(
+    MeetingSummary current,
+    ({String title, String content, String? version}) intent,
+  ) => current.title == intent.title && current.content == intent.content;
+
+  void _acknowledge(
+    MeetingSummary current,
+    ({String title, String content, String? version}) intent,
+  ) {
+    summary = current;
+    _savedTitle = intent.title;
+    _savedContent = intent.content;
+    _uncertainSave = null;
+    // Never replace title/content typed while the request or GET was in flight.
+  }
+
   Future<bool> _save(String capturedTitle, String capturedContent) async {
     saving = true;
     error = null;
     _notify();
+    final intent =
+        _uncertainSave ??
+        (
+          title: capturedTitle,
+          content: capturedContent,
+          version: summary.version,
+        );
+    var attemptedWrite = false;
     try {
-      summary = await api.saveSummary(
+      if (_uncertainSave != null) {
+        final current = await api.summary(summary.id);
+        if (_matches(current, intent)) {
+          _acknowledge(current, intent);
+          return true;
+        }
+        if (current.version != intent.version) {
+          error = 'Встреча изменена в другом редакторе. Ваш текст остаётся здесь; сохранение без проверки версии не выполняется.';
+          return false;
+        }
+        // The original version is still current: retry the old captured intent,
+        // never newer typed text, under the same CAS. flush() saves newer edits
+        // only after this operation has been acknowledged.
+      }
+      attemptedWrite = true;
+      final current = await api.saveSummary(
         summary.id,
-        title: capturedTitle,
-        content: capturedContent,
-        expectedVersion: summary.version,
+        title: intent.title,
+        content: intent.content,
+        expectedVersion: intent.version,
       );
-      _savedTitle = capturedTitle;
-      _savedContent = capturedContent;
-      // Never replace text typed while this request was in flight.
+      _acknowledge(current, intent);
       return true;
     } catch (e) {
+      if (attemptedWrite &&
+          e is ApiException &&
+          (e.retryable ||
+              e.code == 'invalid_response' ||
+              e.code == 'summary_version_conflict')) {
+        _uncertainSave = intent;
+        try {
+          final current = await api.summary(summary.id);
+          if (_matches(current, intent)) {
+            _acknowledge(current, intent);
+            return true;
+          }
+        } catch (_) {
+          // Preserve the captured intent and the original error for a retry.
+        }
+      }
       error = e.toString();
       return false;
     } finally {
@@ -135,6 +192,7 @@ class SummaryEditor extends ChangeNotifier {
 
   void discardUnsaved() {
     _timer?.cancel();
+    _uncertainSave = null;
     title = _savedTitle;
     content = _savedContent;
     error = null;
