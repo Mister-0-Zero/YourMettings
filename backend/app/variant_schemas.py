@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 
-from app.schemas import Input, Name, GenerationOptionsInput, NavigationHeading, ProcessingError
+from app.schemas import Input, Name, SummaryContent, SummaryVersion, GenerationOptionsInput, NavigationHeading, ProcessingError
 
 
 class SelectionInput(Input):
@@ -64,4 +64,18 @@ class SelectionOut(BaseModel):
 
 class AcceptCandidate(Input):
     candidate_id: UUID
-    expected_version: Annotated[str, StringConstraints(pattern="^[0-9a-f]{64}$")] | None = None
+    expected_version: SummaryVersion | None = Field(default=None,
+        description="Existing summary: required original summary_version. New summary: omit or null. Freeze for retries.")
+    title: Name | None = Field(default=None,
+        description="Optional edited title, trimmed to 1-200 characters. Omit to preserve the title; explicit null is invalid.")
+    content: SummaryContent | None = Field(default=None,
+        description="Optional edited Markdown, nonblank, at most 200000 characters. Omit to accept candidate content; explicit null is invalid.")
+
+    @model_validator(mode="after")
+    def valid_edits(self):
+        for field in ("title", "content"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError("Explicit null edits are not allowed")
+        if self.content is not None and not self.content.strip():
+            raise ValueError("Content must not be blank")
+        return self

@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import owned_folder, owned_summary, owned_transcript, validate_folders
+from app.api.errors import fail
 from app.db.models import Summary, SummaryFolder, Transcript
 from app.services.deletion import cleanup_transcript, lock_user_data
 from app.db.session import current_user_id, get_db
@@ -44,8 +45,10 @@ def get_summary(id: UUID, db: Session = Depends(get_db)):
 @router.patch("/{id}", response_model=SummaryOut)
 def edit_summary(id: UUID, body: SummaryEdit, db: Session = Depends(get_db)):
     item = owned_summary(db, id, lock=True)
+    if body.expected_version is not None and summary_version(item) != body.expected_version:
+        fail(409, "summary_version_conflict", "Сохранённый документ изменён. Перечитайте его перед сохранением.")
     item.content_revision += 1
-    for field, value in body.model_dump(exclude_unset=True).items():
+    for field, value in body.model_dump(exclude_unset=True, exclude={"expected_version"}).items():
         setattr(item, field, value)
     db.commit()
     return summary_response(db, item)

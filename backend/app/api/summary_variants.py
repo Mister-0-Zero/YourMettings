@@ -197,9 +197,17 @@ def accept_selection(id: UUID, body: AcceptCandidate, db: Session = Depends(get_
     from app.api.summaries import summary_response
     prepare(db)
     item = meeting_session(db, id, lock=True)
+    # Normalize omitted/null expected_version, but preserve edit field presence.
+    # The selection itself is the durable acceptance operation identity.
+    accepted_request_hash = fingerprint({"candidate_id": str(body.candidate_id),
+        "expected_version": body.expected_version,
+        **body.model_dump(mode="json", include={"title", "content"}, exclude_unset=True)})
     if item.status == "accepted":
         if item.accepted_candidate_id != body.candidate_id:
             fail(409, "selection_closed", "Уже принят другой кандидат.")
+        if ((item.accepted_request_hash is not None and item.accepted_request_hash != accepted_request_hash)
+                or (item.accepted_request_hash is None and body.model_fields_set.intersection({"title", "content"}))):
+            fail(409, "idempotency_conflict", "Результат уже принят с другими правками или версией.")
         result = SummaryOut.model_validate(item.accepted_response)
         db.commit()
         return result
@@ -230,7 +238,9 @@ def accept_selection(id: UUID, body: AcceptCandidate, db: Session = Depends(get_
         item.summary_id = result.id
     if existing_target:
         result.content_revision += 1
-    result.content = candidate.content
+    result.content = body.content if "content" in body.model_fields_set else candidate.content
+    if "title" in body.model_fields_set:
+        result.title = body.title
     result.template_snapshot = candidate.options["template_snapshot"]
     result.generation_options = {k: v for k, v in candidate.options.items() if k != "template_snapshot"}
     result.updated_at = func.now()
@@ -243,6 +253,7 @@ def accept_selection(id: UUID, body: AcceptCandidate, db: Session = Depends(get_
     response = summary_response(db, result)
     item.accepted_candidate_id = candidate.id
     item.accepted_response = response.model_dump(mode="json")
+    item.accepted_request_hash = accepted_request_hash
     clear_selection(db, item, "accepted", selected_id=candidate.id)
     db.commit()
     return response

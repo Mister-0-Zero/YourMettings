@@ -33,6 +33,7 @@ class SummarySelection(Base):
     base_version: Mapped[str | None] = mapped_column(String(64))
     accepted_candidate_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     accepted_response: Mapped[dict | None] = mapped_column(JSONB)
+    accepted_request_hash: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 

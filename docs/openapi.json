@@ -2606,7 +2606,36 @@
                 "type": "null"
               }
             ],
-            "title": "Expected Version"
+            "title": "Expected Version",
+            "description": "Existing summary: required original summary_version. New summary: omit or null. Freeze for retries."
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Optional edited title, trimmed to 1-200 characters. Omit to preserve the title; explicit null is invalid."
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content",
+            "description": "Optional edited Markdown, nonblank, at most 200000 characters. Omit to accept candidate content; explicit null is invalid."
           }
         },
         "additionalProperties": false,
@@ -4229,6 +4258,7 @@
             "anyOf": [
               {
                 "type": "string",
+                "maxLength": 200000,
                 "minLength": 1
               },
               {
@@ -4236,6 +4266,19 @@
               }
             ],
             "title": "Content"
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version",
+            "description": "Optional compare-and-set version from GET summary. Omit for legacy last-write-wins; explicit null is invalid."
           }
         },
         "additionalProperties": false,

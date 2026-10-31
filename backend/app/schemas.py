@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 NonemptyText = Annotated[str, StringConstraints(min_length=1)]
+SummaryContent = Annotated[str, StringConstraints(min_length=1, max_length=200_000)]
+SummaryVersion = Annotated[str, StringConstraints(pattern="^[0-9a-f]{64}$")]
 
 
 class Input(BaseModel):
@@ -112,14 +114,18 @@ class ProcessingOut(BaseModel):
 
 class SummaryEdit(Input):
     title: Name | None = None
-    content: NonemptyText | None = None
+    content: SummaryContent | None = None
+    expected_version: SummaryVersion | None = Field(default=None,
+        description="Optional compare-and-set version from GET summary. Omit for legacy last-write-wins; explicit null is invalid.")
 
     @model_validator(mode="after")
     def supplied_nonnull(self):
-        if not self.model_fields_set:
+        if not self.model_fields_set.intersection({"title", "content"}):
             raise ValueError("Supply title or content")
         if any(getattr(self, field) is None for field in self.model_fields_set):
             raise ValueError("Explicit null is not allowed")
+        if self.content is not None and not self.content.strip():
+            raise ValueError("Content must not be blank")
         return self
 
 

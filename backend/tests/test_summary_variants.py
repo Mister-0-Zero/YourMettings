@@ -111,6 +111,77 @@ def test_initial_candidates_do_not_enter_history_and_a_b_a_reuses(client, databa
     assert accept(client, selection, a).status_code == 409
 
 
+def test_edited_accept_atomic_receipt_survives_lost_reply_and_restart(client, database, generator):
+    selection, placement = new_selection(client)
+    chosen = ready(client, candidate(client, selection))
+    edits = {"title": "Edited title", "content": "## Edited heading\n**Important fact**"}
+    saved = accept(client, selection, chosen, **edits).json()
+    assert saved["title"] == edits["title"] and saved["content"] == edits["content"]
+    assert saved["folder_ids"] == placement["folder_ids"]
+    assert saved["navigation"][0]["title"] == "Edited heading"
+    assert saved["template_snapshot"] == chosen["template_snapshot"]
+    assert saved["generation_options"] == chosen["generation_options"]
+    # Simulate a committed accept whose reply was lost, followed by a later edit.
+    url = f"/api/v1/summaries/{saved['id']}"
+    later = client.patch(url, json={"content": "Later edit", "expected_version": saved["version"]})
+    assert later.status_code == 200
+    initialize_database(database)
+    assert accept(client, selection, chosen, **edits).json() == saved
+    for changed in ({**edits, "content": "Different"}, {**edits, "title": "Different"},
+                    {"content": edits["content"]}, {**edits, "expected_version": "0" * 64}):
+        response = accept(client, selection, chosen, **changed)
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "idempotency_conflict"
+    assert client.get(url).json() == later.json()
+    assert generator.calls == 1
+
+
+def test_edited_existing_accept_preserves_current_folders_and_checks_version(client, generator):
+    _, sid, _ = processed(client)
+    selection = create(client, {"summary_id": sid}).json()
+    chosen = ready(client, candidate(client, selection))
+    folder = client.post("/api/v1/folders", json={"name": "Moved"}).json()["id"]
+    client.put(f"/api/v1/summaries/{sid}/folders", json={"folder_ids": [folder]})
+    assert accept(client, selection, chosen, content="Edited", expected_version="0" * 64).status_code == 409
+    saved = accept(client, selection, chosen, title="New title", content="## Edited\n**Bold**").json()
+    assert saved["title"] == "New title" and saved["content"] == "## Edited\n**Bold**"
+    assert saved["folder_ids"] == [folder]
+
+
+@pytest.mark.parametrize("edits", [{"content": None}, {"content": ""}, {"content": " \n\t"},
+    {"content": "x" * 200_001}, {"title": None}, {"title": " "}, {"title": "x" * 201}])
+def test_invalid_edited_accept_leaves_selection_open(client, generator, edits):
+    selection, _ = new_selection(client)
+    chosen = ready(client, candidate(client, selection))
+    assert accept(client, selection, chosen, **edits).status_code == 422
+    assert client.get(f"{BASE}/{selection['id']}").json()["status"] == "open"
+    assert client.get("/api/v1/summaries").json()["total"] == 0
+
+
+def test_concurrent_different_edits_choose_one_immutable_accept(client, generator):
+    selection, _ = new_selection(client)
+    chosen = ready(client, candidate(client, selection))
+    barrier = threading.Barrier(2)
+    def save(content):
+        barrier.wait(timeout=10)
+        return accept(client, selection, chosen, content=content)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(save, ["First edit", "Second edit"]))
+    assert sorted(r.status_code for r in responses) == [200, 409]
+    winner = next(r.json() for r in responses if r.status_code == 200)
+    assert client.get(f"/api/v1/summaries/{winner['id']}").json() == winner
+
+
+def test_historical_accept_receipt_allows_legacy_retry_but_not_new_edits(client, database, generator):
+    selection, _ = new_selection(client)
+    chosen = ready(client, candidate(client, selection))
+    saved = accept(client, selection, chosen).json()
+    with database.begin() as db:
+        db.get(SummarySelection, UUID(selection["id"])).accepted_request_hash = None
+    assert accept(client, selection, chosen).json() == saved
+    assert accept(client, selection, chosen, content="New edit").status_code == 409
+
+
 def test_existing_summary_unchanged_until_accept_and_current_folders_kept(client, database, generator):
     tid, sid, placement = processed(client)
     before = client.get(f"/api/v1/summaries/{sid}").json()

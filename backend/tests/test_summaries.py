@@ -1,4 +1,6 @@
 import uuid
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from sqlalchemy import select
@@ -17,6 +19,41 @@ def processed(client):
     client.post(f"/api/v1/transcripts/{tid}/process", json=body)
     sid = client.get(f"/api/v1/transcripts/{tid}/processing").json()["summary_id"]
     return tid, sid, body
+
+
+def test_conditional_patch_conflict_lost_reply_and_folders(client):
+    _, sid, placement = processed(client)
+    url = f"/api/v1/summaries/{sid}"
+    original = client.get(url).json()
+    body = {"title": "Edited title", "content": "## Edited\n**Bold**", "expected_version": original["version"]}
+    saved = client.patch(url, json=body)
+    assert saved.status_code == 200
+    assert saved.json()["folder_ids"] == placement["folder_ids"]
+    assert saved.json()["navigation"][0]["title"] == "Edited"
+    assert saved.json()["version"] != original["version"]
+    # PATCH has CAS, not an acceptance receipt: after lost reply GET reconciles.
+    repeated = client.patch(url, json=body)
+    assert repeated.status_code == 409
+    assert repeated.json()["error"]["code"] == "summary_version_conflict"
+    assert client.get(url).json() == saved.json()
+    for bad in ({"expected_version": original["version"]}, {"title": "X", "expected_version": None},
+                {"content": " "}, {"content": "x" * 200_001}):
+        assert client.patch(url, json=bad).status_code == 422
+
+
+def test_concurrent_conditional_patch_has_one_winner(client):
+    _, sid, _ = processed(client)
+    url = f"/api/v1/summaries/{sid}"
+    version = client.get(url).json()["version"]
+    barrier = threading.Barrier(2)
+    def edit(content):
+        barrier.wait(timeout=10)
+        return client.patch(url, json={"content": content, "expected_version": version})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(edit, ["First", "Second"]))
+    assert sorted(r.status_code for r in responses) == [200, 409]
+    winner = next(r.json() for r in responses if r.status_code == 200)
+    assert client.get(url).json() == winner
 
 
 def test_summary_edit_list_assign_and_delete(client):
