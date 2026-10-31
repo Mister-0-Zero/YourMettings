@@ -1,0 +1,26 @@
+{
+  "transport": "usb-loopback",
+  "backend_origin": "http://127.0.0.1:8001",
+  "health": 200,
+  "demo_profile": 200,
+  "live_openapi_new_fields": true,
+  "real_qwen_candidate": "ready",
+  "edited_accept": 200,
+  "identical_accept_receipt": 200,
+  "changed_accept": 409,
+  "cas_patch": 200,
+  "stale_patch": 409,
+  "accept_receipt_after_later_patch_unchanged": true,
+  "saved_summary_count_before_cleanup": 1,
+  "synthetic_meeting_cleaned": true,
+  "user_summary_ids_modified": false,
+  "elapsed_seconds": 12.812,
+  "preexisting_business_rows_unchanged": {
+    "summaries": true,
+    "transcripts": true,
+    "folders": true,
+    "summary_folders": true,
+    "summary_templates": true
+  },
+  "remaining_business_summaries": 15
+}
