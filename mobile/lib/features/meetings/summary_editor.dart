@@ -98,6 +98,7 @@ class SummaryEditor extends ChangeNotifier {
         summary.id,
         title: capturedTitle,
         content: capturedContent,
+        expectedVersion: summary.version,
       );
       _savedTitle = capturedTitle;
       _savedContent = capturedContent;

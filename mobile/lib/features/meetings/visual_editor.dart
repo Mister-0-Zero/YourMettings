@@ -1,3 +1,4 @@
+import '../../app/appearance.dart';
 import '../../services/external_links.dart';
 
 import 'package:flutter/material.dart';
@@ -115,9 +116,11 @@ class VisualEditorBody extends StatelessWidget {
                     data: section.source,
                     onTapLink: (_, href, _) => openExternalLink(context, href),
                     selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(
-                      Theme.of(context),
-                    ).copyWith(tableColumnWidth: const IntrinsicColumnWidth()),
+                    styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
+                        .copyWith(
+                          tableColumnWidth: const IntrinsicColumnWidth(),
+                          strong: documentBoldStyle(context),
+                        ),
                     imageBuilder: (uri, title, alt) =>
                         Text(alt ?? 'Изображение'),
                   ),
@@ -132,6 +135,7 @@ class VisualEditorBody extends StatelessWidget {
               scrollController: section.scroll,
               config: q.QuillEditorConfig(
                 editorKey: section.editorKey,
+                customStyles: q.DefaultStyles(bold: documentBoldStyle(context)),
                 onLaunchUrl: (url) => openExternalLink(context, url),
                 scrollable: false,
                 embedBuilders: const [_DividerBuilder()],

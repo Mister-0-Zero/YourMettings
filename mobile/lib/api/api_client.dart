@@ -151,22 +151,27 @@ class ApiClient {
     String id, {
     required String title,
     required String content,
-  }) async => MeetingSummary.fromJson(
-    await _request(
-      'PATCH',
-      'summaries/$id',
-      body: {'title': title, 'content': content},
-    ),
+    String? expectedVersion,
+  }) => patchSummary(
+    id,
+    title: title,
+    content: content,
+    expectedVersion: expectedVersion,
   );
   Future<MeetingSummary> patchSummary(
     String id, {
     String? title,
     String? content,
+    String? expectedVersion,
   }) async => MeetingSummary.fromJson(
     await _request(
       'PATCH',
       'summaries/$id',
-      body: {'title': ?title, 'content': ?content},
+      body: {
+        'title': ?title,
+        'content': ?content,
+        'expected_version': ?expectedVersion,
+      },
     ),
   );
   Future<MeetingSummary> setSummaryFolders(
@@ -279,12 +284,19 @@ class ApiClient {
   Future<MeetingSummary> acceptSelection(
     String id,
     String candidateId,
-    String? version,
-  ) async => MeetingSummary.fromJson(
+    String? version, {
+    String? title,
+    String? content,
+  }) async => MeetingSummary.fromJson(
     await _request(
       'POST',
       'summary-selections/$id/accept',
-      body: {'candidate_id': candidateId, 'expected_version': version},
+      body: {
+        'candidate_id': candidateId,
+        'expected_version': version,
+        'title': ?title,
+        'content': ?content,
+      },
     ),
   );
   Future<void> cancelSelection(String id) async {

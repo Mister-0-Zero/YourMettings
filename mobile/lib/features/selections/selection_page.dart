@@ -276,11 +276,13 @@ class _SelectionPageState extends State<SelectionPage>
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: c,
     builder: (context, _) {
-      final processing =
+      final waiting =
           _requesting ||
           c.hasPending ||
           c.generating ||
           (c.busy && !c.ready && !c.frozen);
+      // A saved meeting has a usable original even while a candidate is queued.
+      final processing = waiting && widget.original == null;
       final canAct =
           c.ready && !c.busy && !c.frozen && !_finishing && !c.terminal;
       final hasHistory = c.ids.length + (widget.original == null ? 0 : 1) > 1;
@@ -353,8 +355,9 @@ class _SelectionPageState extends State<SelectionPage>
                             api: widget.api,
                             value: _options.templateId,
                             enabled:
-                                canAct ||
-                                (!c.busy &&
+                                (canAct && !waiting) ||
+                                (!waiting &&
+                                    !c.busy &&
                                     !c.frozen &&
                                     !c.terminal &&
                                     c.active?['status'] == 'error'),
@@ -387,6 +390,25 @@ class _SelectionPageState extends State<SelectionPage>
                                   icon: const Icon(Icons.arrow_forward),
                                 ),
                               ],
+                            ),
+                          if (waiting)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text('Qwen обрабатывает транскрипт'),
+                                  ),
+                                ],
+                              ),
                             ),
                           if (c.hasLocalEdits)
                             const Padding(

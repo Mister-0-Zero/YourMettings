@@ -72,11 +72,7 @@ class SelectionController extends ChangeNotifier {
           : active?['content'] as String?);
   bool get hasLocalEdits => activeEdit.isNotEmpty;
   bool get canEdit =>
-      ready &&
-      !busy &&
-      !terminal &&
-      accepted == null &&
-      (!frozen || state['receipt'] != null || state['keep_original'] == true);
+      ready && !busy && !terminal && accepted == null && !frozen;
   Future<void> editActive({
     required String title,
     required String content,
@@ -110,21 +106,7 @@ class SelectionController extends ChangeNotifier {
       edits[_draftKey] = edit;
     }
     final previous = state;
-    final previousIntent = state['accept_edit'] as Json? ?? {};
-    state = {
-      ...state,
-      'edits': edits,
-      if (frozen) ...{
-        'edit_alternatives': [
-          ...?state['edit_alternatives'] as List?,
-          previousIntent,
-        ],
-        'accept_edit': {
-          for (final key in {...previousIntent.keys, ...edit.keys})
-            key: key == 'title' ? title : content,
-        },
-      },
-    };
+    state = {...state, 'edits': edits};
     try {
       await _save();
     } catch (_) {
@@ -323,54 +305,80 @@ class SelectionController extends ChangeNotifier {
         ...state,
         'accept_id': activeId,
         'accept_edit': {...activeEdit},
+        'accept_protocol': 'atomic-v1',
       };
       await _save();
     }
     await _accept();
   });
+  Json _snapshot(MeetingSummary value) => {
+    'id': value.id,
+    'transcript_id': value.transcriptId,
+    'title': value.title,
+    'content': value.content,
+    'folder_ids': value.folderIds,
+    'created_at': value.createdAt.toIso8601String(),
+    'updated_at': value.updatedAt.toIso8601String(),
+    'version': value.version,
+    'template_snapshot': value.templateSnapshot,
+    'generation_options': value.generationOptions,
+    'navigation': [
+      for (final h in value.navigation)
+        {
+          'id': h.id,
+          'title': h.title,
+          'level': h.level,
+          'heading_index': h.headingIndex,
+          'line_index': h.lineIndex,
+        },
+    ],
+  };
+
   Future<void> _accept() async {
+    final legacy = state['accept_protocol'] != 'atomic-v1';
     await _save();
     if (state['receipt'] == null) {
+      final edit = state['accept_edit'] as Json? ?? {};
       final receipt = await api.acceptSelection(
         state['session_id'] as String,
         state['accept_id'] as String,
         state['summary_version'] as String?,
+        title: legacy ? null : edit['title'] as String?,
+        content: legacy ? null : edit['content'] as String?,
       );
       state = {
         ...state,
         'accepted_summary_id': receipt.id,
-        'receipt': {
-          'id': receipt.id,
-          'title': receipt.title,
-          'content': receipt.content,
-          'version': receipt.version,
-          'template_snapshot': receipt.templateSnapshot,
-          'generation_options': receipt.generationOptions,
-        },
+        'receipt': _snapshot(receipt),
       };
       await _save();
     }
-    accepted = await _applyEdits(state['receipt'] as Json);
+    final receipt = state['receipt'] as Json;
+    if (legacy) {
+      // Migration only: replay the exact old accept, then finish its owed edits
+      // with CAS. New atomic accept never enters this path.
+      accepted = await _applyEdits(receipt);
+      return;
+    }
+    accepted = MeetingSummary.fromJson(receipt);
   }
 
   bool get editConflict => state['edit_conflict'] == true;
   Future<void> retryEditsOverCurrent() => _run(() async {
-    // Only called after explicit confirmation to replace the current fields.
+    // Atomic-v1 is immutable. Only an unfinished legacy PATCH or keeping the
+    // original can ask for consent to replace current fields.
+    if (!editConflict ||
+        (state['accept_protocol'] == 'atomic-v1' &&
+            state['keep_original'] != true)) {
+      return;
+    }
     final base = state['receipt'] as Json? ?? _originalBase!;
     final current = await api.summary(base['id'] as String);
-    final replacement = {
-      'id': current.id,
-      'title': current.title,
-      'content': current.content,
-      'version': current.version,
-    };
     state = {
       ...state,
       'edit_conflict': false,
-      if (state['receipt'] != null)
-        'receipt': replacement
-      else
-        'original_baseline': replacement,
+      // Never rewrite the immutable accept receipt or opening baseline.
+      'edit_baseline': _snapshot(current),
     };
     await _save();
     if (state['keep_original'] == true) {
@@ -380,7 +388,18 @@ class SelectionController extends ChangeNotifier {
     }
   });
 
-  Future<MeetingSummary> _applyEdits(Json baseline) async {
+  Future<Never> _editConflict() async {
+    state = {...state, 'edit_conflict': true};
+    await _save();
+    throw const ApiException(
+      'local_edit_conflict',
+      'Документ уже изменён. Ваши правки сохранены на устройстве. Повторное сохранение потребует подтверждения замены текущего текста.',
+    );
+  }
+
+  Future<MeetingSummary> _applyEdits(Json originalBaseline) async {
+    if (editConflict) await _editConflict();
+    final baseline = state['edit_baseline'] as Json? ?? originalBaseline;
     final edit = state['accept_edit'] as Json? ?? {};
     final current = await api.summary(baseline['id'] as String);
     if (edit.isEmpty ||
@@ -401,18 +420,29 @@ class SelectionController extends ChangeNotifier {
                 (key == 'title' ? current.title : current.content),
           ),
     )) {
-      state = {...state, 'edit_conflict': true};
-      await _save();
-      throw const ApiException(
-        'local_edit_conflict',
-        'Документ уже изменён. Ваши правки сохранены на устройстве. Повторное сохранение потребует подтверждения замены текущего текста.',
+      await _editConflict();
+    }
+    // Unrelated fields may have changed since the receipt. Protect the exact
+    // document we just read, rather than repeatedly submitting its old version.
+    final version = current.version;
+    if (version == null || version.isEmpty) {
+      throw const FormatException(
+        'Сервер не вернул версию документа. Правки сохранены; обновите сервер и повторите.',
       );
     }
-    return api.patchSummary(
-      current.id,
-      title: edit['title'] as String?,
-      content: edit['content'] as String?,
-    );
+    try {
+      return await api.patchSummary(
+        current.id,
+        title: edit['title'] as String?,
+        content: edit['content'] as String?,
+        expectedVersion: version,
+      );
+    } on ApiException catch (e) {
+      if (['summary_version_conflict', 'source_conflict'].contains(e.code)) {
+        await _editConflict();
+      }
+      rethrow;
+    }
   }
 
   Future<void> _cancel() async {
@@ -474,8 +504,12 @@ class SelectionController extends ChangeNotifier {
       if (e is ApiException &&
           ['summary_version_conflict', 'source_conflict'].contains(e.code)) {
         error = 'Встреча изменена в другом редакторе. Вернитесь к актуальному документу и откройте новый выбор шаблона.';
-        // A definite conflict did not accept anything. Never change base version.
-        state = {...state, 'accept_id': null};
+        // A definite original PATCH conflict requires explicit consent and a new CAS.
+        state = {
+          ...state,
+          'accept_id': null,
+          if (state['keep_original'] == true) 'edit_conflict': true,
+        };
         await _save();
       } else if (e is ApiException && e.statusCode == 410) {
         terminal = true;

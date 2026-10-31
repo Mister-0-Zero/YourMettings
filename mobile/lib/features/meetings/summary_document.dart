@@ -46,9 +46,6 @@ class _SummaryDocumentState extends State<SummaryDocument> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final prefs = AppearanceScope.maybeOf(context);
-    final accent = (prefs?.documentAccent ?? DocumentAccent.orange)
-        .forBrightness(theme.brightness);
     final base = MarkdownStyleSheet.fromTheme(theme);
     final style = base.copyWith(
       p: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
@@ -58,10 +55,7 @@ class _SummaryDocumentState extends State<SummaryDocument> {
       h4: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
       h5: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
       h6: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
-      strong: TextStyle(
-        fontWeight: FontWeight.bold,
-        color: (prefs?.colorDocumentBold ?? true) ? accent : null,
-      ),
+      strong: documentBoldStyle(context),
       blockSpacing: 14,
       tableColumnWidth: const IntrinsicColumnWidth(),
     );

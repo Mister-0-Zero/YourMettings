@@ -20,6 +20,8 @@ class Server {
   final variants = <String, Json>{};
   String status = 'open', content = 'initial';
   String? acceptedId;
+  String currentTitle = 'Meeting';
+  Json? acceptReceipt, acceptIntent;
   bool loseOpen = false,
       loseCandidate = false,
       loseAccept = false,
@@ -28,7 +30,7 @@ class Server {
   Json summary() => {
     'id': 'summary',
     'transcript_id': 'source',
-    'title': 'Meeting',
+    'title': currentTitle,
     'content': content,
     'folder_ids': ['folder'],
     'created_at': '2026-10-24T00:00:00Z',
@@ -104,14 +106,30 @@ class Server {
       }
       final body = jsonDecode(r.body) as Json;
       expect(body['expected_version'], 'original-version');
-      acceptedId ??= body['candidate_id'] as String;
-      status = 'accepted';
-      content = variants[acceptedId]!['content'] as String;
+      if (acceptIntent != null &&
+          jsonEncode(acceptIntent) != jsonEncode(body)) {
+        return response({
+          'error': {
+            'code': 'idempotency_conflict',
+            'message': 'Immutable accept',
+          },
+        }, 409);
+      }
+      if (acceptReceipt == null) {
+        acceptIntent = body;
+        acceptedId = body['candidate_id'] as String;
+        status = 'accepted';
+        content =
+            body['content'] as String? ??
+            variants[acceptedId]!['content'] as String;
+        currentTitle = body['title'] as String? ?? currentTitle;
+        acceptReceipt = summary();
+      }
       if (loseAccept) {
         loseAccept = false;
         throw http.ClientException('lost accept');
       }
-      return response(summary());
+      return response(acceptReceipt!);
     }
     throw StateError('Unexpected request: ${r.method} $path');
   }

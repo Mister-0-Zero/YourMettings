@@ -13,12 +13,18 @@ import 'package:your_mettings/services/operation_store.dart';
 import 'selection_recovery_test.dart' show Server, response;
 
 class DraftServer extends Server {
-  bool losePatch = false, rejectPatch = false;
-  String currentTitle = 'Meeting';
-  @override
-  Json summary() => {...super.summary(), 'title': currentTitle};
+  bool losePatch = false, rejectPatch = false, oldBackend = false;
   @override
   Future<http.Response> handle(http.Request r) async {
+    if (oldBackend && r.url.path.endsWith('/accept')) {
+      calls.add(r);
+      return response({
+        'error': {
+          'code': 'validation_error',
+          'message': 'Unsupported edit fields',
+        },
+      }, 422);
+    }
     if (r.method == 'PATCH' && r.url.path.endsWith('/summaries/summary')) {
       calls.add(r);
       if (rejectPatch) {
@@ -36,6 +42,15 @@ class DraftServer extends Server {
       return response(summary());
     }
     return super.handle(r);
+  }
+}
+
+class IntentFaultStore extends OperationStore {
+  bool fail = false;
+  @override
+  Future<void> put(String slot, Json value) {
+    if (fail) throw const FileSystemException('Checkpoint failed');
+    return super.put(slot, value);
   }
 }
 
@@ -69,79 +84,67 @@ void main() {
     return c;
   }
 
-  test('separate edited variants survive reload; only the active fields are patched after accept', () async {
+  test('edited variants survive reload and active title/content are accepted atomically', () async {
     final dir = await Directory.systemTemp.createTemp('ym-variant-edits-');
     addTearDown(() => dir.delete(recursive: true));
     final file = File('${dir.path}/operations.json');
     final store = OperationStore(file: file), server = DraftServer();
     final c = create(server, store);
     await c.initialize();
-    await c.editActive(title: 'Meeting', content: '## Edited A');
+    await c.editActive(title: 'Title A', content: '## Edited A');
     await c.generate(const ProcessingOptions(templateId: 'B'));
     await c.editActive(title: 'Title B', content: '## Edited B');
     await c.move(-1);
-    expect(c.content, '## Edited A');
-    expect(c.title, 'Meeting');
-    expect(server.calls.where((r) => r.method == 'PATCH'), isEmpty);
     c.pause();
     final restoredStore = OperationStore(file: file);
     await restoredStore.load();
     final restored = create(server, restoredStore);
     await restored.initialize();
-    expect(restored.content, '## Edited A');
-    server.currentTitle = 'Server renamed';
     await restored.accept();
     expect(restored.accepted!.content, '## Edited A');
-    expect(restored.accepted!.title, 'Server renamed');
-    expect(server.acceptedId, 'A');
-    final patches = server.calls.where((r) => r.method == 'PATCH');
-    expect(patches.length, 1);
-    expect(jsonDecode(patches.single.body), {'content': '## Edited A'});
+    expect(restored.accepted!.title, 'Title A');
+    expect(server.calls.where((r) => r.method == 'PATCH'), isEmpty);
+    expect(server.acceptIntent, {
+      'candidate_id': 'A',
+      'expected_version': 'original-version',
+      'title': 'Title A',
+      'content': '## Edited A',
+    });
   });
-  test('lost PATCH reply is reconciled after restart without a second accept or overwrite', () async {
-    final server = DraftServer()..losePatch = true;
-    final store = OperationStore();
-    // Use a shared durable checkpoint for the restored controller.
-    final first = create(server, store);
+  test('lost atomic accept freezes exact edited payload across disk restart and returns immutable receipt', () async {
+    final dir = await Directory.systemTemp.createTemp('ym-accept-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/operations.json');
+    final server = DraftServer()..loseAccept = true;
+    final first = create(server, OperationStore(file: file));
     await first.initialize();
-    await first.editActive(title: 'Meeting', content: '## Local text');
+    await first.editActive(title: 'Local title', content: '## Local text');
     await first.accept();
     first.pause();
     expect(first.accepted, isNull);
     expect(first.frozen, isTrue);
-    final restored = create(server, store);
+    expect(first.canEdit, isFalse);
+    await expectLater(
+      first.editActive(title: 'Different', content: 'Different'),
+      throwsStateError,
+    );
+    // Another editor changes the live summary after our accept committed.
+    server.content = '## External edit';
+    server.currentTitle = 'External title';
+    final restoredStore = OperationStore(file: file);
+    await restoredStore.load();
+    final restored = create(server, restoredStore);
     await restored.initialize();
     expect(restored.accepted!.content, '## Local text');
-    expect(server.calls.where((r) => r.url.path.endsWith('/accept')).length, 1);
-    expect(server.calls.where((r) => r.method == 'PATCH').length, 1);
+    expect(restored.accepted!.title, 'Local title');
+    final accepts = server.calls
+        .where((r) => r.url.path.endsWith('/accept'))
+        .toList();
+    expect(accepts.length, 2);
+    expect(accepts[0].body, accepts[1].body);
+    expect(server.content, '## External edit');
+    expect(server.calls.where((r) => r.method == 'PATCH'), isEmpty);
   });
-  test(
-    'definite PATCH failure retains frozen choice and edits for explicit retry',
-    () async {
-      final server = DraftServer()..rejectPatch = true;
-      final c = create(server, OperationStore());
-      await c.initialize();
-      await c.editActive(title: 'Edited title', content: '## Edited content');
-      await c.accept();
-      expect(c.accepted, isNull);
-      expect(c.frozen, isTrue);
-      expect(c.content, '## Edited content');
-      expect(c.error, contains('Try again'));
-      expect(c.canEdit, isTrue);
-      await c.editActive(
-        title: 'Corrected title',
-        content: '## Corrected content',
-      );
-      server.rejectPatch = false;
-      await c.accept();
-      expect(c.accepted!.title, 'Corrected title');
-      expect(c.accepted!.content, '## Corrected content');
-      expect(
-        server.calls.where((r) => r.url.path.endsWith('/accept')).length,
-        1,
-      );
-    },
-  );
   test('saved original uses its opening baseline and requires consent over concurrent edits', () async {
     final server = DraftServer()..content = '## Original';
     final c = create(
@@ -160,5 +163,76 @@ void main() {
     expect(server.calls.where((r) => r.method == 'PATCH'), isEmpty);
     await c.retryEditsOverCurrent();
     expect(c.accepted!.content, '## Local edit');
+  });
+  test('atomic accept never posts before durable exact intent and never falls back to PATCH on rejection', () async {
+    final server = DraftServer();
+    final store = IntentFaultStore();
+    final c = create(server, store);
+    await c.initialize();
+    await c.editActive(title: 'Edited', content: '**Content**');
+    store.fail = true;
+    await c.accept();
+    c.pause();
+    expect(server.calls.where((r) => r.url.path.endsWith('/accept')), isEmpty);
+    expect(c.accepted, isNull);
+    expect(c.frozen, isTrue);
+    expect(c.canEdit, isFalse);
+    store.fail = false;
+    server.conflict = true;
+    await c.refresh();
+    c.pause();
+    expect(c.accepted, isNull);
+    expect(server.calls.where((r) => r.method == 'PATCH'), isEmpty);
+    final accept = server.calls.lastWhere(
+      (r) => r.url.path.endsWith('/accept'),
+    );
+    expect(jsonDecode(accept.body), {
+      'candidate_id': 'A',
+      'expected_version': 'original-version',
+      'title': 'Edited',
+      'content': '**Content**',
+    });
+    expect(c.state['accept_edit'], {
+      'title': 'Edited',
+      'content': '**Content**',
+    });
+  });
+  test('old backend 422 retains frozen draft and exact request until upgraded, without PATCH fallback', () async {
+    final dir = await Directory.systemTemp.createTemp('ym-atomic-upgrade-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/operations.json');
+    final server = DraftServer()..oldBackend = true;
+    final c = create(server, OperationStore(file: file));
+    await c.initialize();
+    await c.editActive(title: 'Local title', content: '**Edited content**');
+    await c.accept();
+    c.pause();
+    expect(c.frozen, isTrue);
+    expect(c.accepted, isNull);
+    expect(c.activeId, 'A');
+    expect(c.content, '**Edited content**');
+    final originalRequest = server.calls
+        .lastWhere((r) => r.url.path.endsWith('/accept'))
+        .body;
+    final restoredStore = OperationStore(file: file);
+    await restoredStore.load();
+    expect(restoredStore['drafts']!['accept_protocol'], 'atomic-v1');
+    final next = create(server, restoredStore);
+    await next.initialize();
+    next.pause();
+    expect(next.frozen, isTrue);
+    expect(next.content, '**Edited content**');
+    expect(server.calls.where((r) => r.method == 'PATCH'), isEmpty);
+    server.oldBackend = false;
+    await next.refresh();
+    expect(next.accepted?.content, '**Edited content**');
+    expect(next.accepted?.title, 'Local title');
+    expect(server.calls.where((r) => r.method == 'PATCH'), isEmpty);
+    expect(
+      server.calls
+          .where((r) => r.url.path.endsWith('/accept'))
+          .every((r) => r.body == originalRequest),
+      isTrue,
+    );
   });
 }

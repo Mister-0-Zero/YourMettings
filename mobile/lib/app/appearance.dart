@@ -22,6 +22,19 @@ enum DocumentAccent {
   Color forBrightness(Brightness b) => b == Brightness.dark ? dark : light;
 }
 
+/// A display preference shared by Markdown and the visual editor. It is never
+/// written as an inline color attribute into the document or sent to the API.
+TextStyle documentBoldStyle(BuildContext context) {
+  final prefs = AppearanceScope.maybeOf(context);
+  final color = (prefs?.documentAccent ?? DocumentAccent.orange).forBrightness(
+    Theme.of(context).brightness,
+  );
+  return TextStyle(
+    fontWeight: FontWeight.bold,
+    color: (prefs?.colorDocumentBold ?? true) ? color : null,
+  );
+}
+
 class AppearanceController extends ChangeNotifier {
   AppearanceController({this.file});
   final File? file;

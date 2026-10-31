@@ -60,6 +60,49 @@ void main() {
     },
   );
 
+  test('normal editor sends its current version on every PATCH and retains edits on CAS conflict', () async {
+    var serverVersion = 'v1';
+    final bodies = <Map<String, dynamic>>[];
+    final api = ApiClient(
+      Uri.parse('http://example/api/v1/'),
+      client: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        bodies.add(body);
+        if (body['expected_version'] != serverVersion) {
+          return response({
+            'error': {
+              'code': 'summary_version_conflict',
+              'message': 'Changed elsewhere',
+            },
+          }, 409);
+        }
+        serverVersion = 'v2';
+        return response({...summaryJson, ...body, 'version': serverVersion});
+      }),
+    );
+    final editor = SummaryEditor(
+      api,
+      MeetingSummary.fromJson({...summaryJson, 'version': 'v1'}),
+    );
+    addTearDown(editor.dispose);
+    addTearDown(api.close);
+    editor.edit(content: 'First');
+    expect(await editor.flush(), isTrue);
+    expect(bodies.first['expected_version'], 'v1');
+    serverVersion = 'v3'; // Concurrent edit after our own successful save.
+    editor.edit(content: 'Second');
+    expect(await editor.flush(), isFalse);
+    expect(bodies.last['expected_version'], 'v2');
+    expect(editor.content, 'Second');
+    expect(editor.dirty, isTrue);
+    expect(editor.error, isNotNull);
+    expect(await editor.flush(), isFalse);
+    expect(
+      bodies.last['expected_version'],
+      'v2',
+    ); // Never drops CAS to force an overwrite.
+  });
+
   testWidgets('debounce coalesces edits into one PATCH after 800 ms', (
     tester,
   ) async {
