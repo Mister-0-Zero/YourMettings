@@ -8,6 +8,8 @@
 
 ## Отчёты по задачам
 
+- [31.10.2026 — deployment checkpoint summary-save](WORK_REPORT_2026-10-31_summary-save-deploy.md): рабочие файлы 1854d87 и схема 0010 готовы, приватный backup проверен; PARTIAL — запуск HTTP и мобильная приёмка ждут решения о сроке demo-доступа.
+
 - [31.10.2026 — атомарное сохранение summary с ручными правками](WORK_REPORT_2026-10-31_summary-save.md): accept receipt, CAS PATCH, миграция 0010, проверки и порядок backend → APK; проверено, публикация разрешена координатором; deployment требует отдельного шага.
 
 ## Подробные backend-результаты
