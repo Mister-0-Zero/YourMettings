@@ -89,6 +89,6 @@ Boundary warnings требуют реального просмотра и сущ
 Локальный synthetic Windows Russian TTS: `C:/Users/Алексей/Documents/ChatGPT/YourMettings/offline-synthetic.wav`, WAV PCM mono16000Hz/16-bit,21.630с,692206байт. В Git не добавлен. Проверен реальными GigaAM/Qwen; использовать только этот синтетический материал, не пользовательские встречи.
 
 
-## Дополнение: удаление review draft до ASR (ещё не развёрнуто)
+## Дополнение: удаление review draft до ASR (USB READY)
 
-Точный opt-in контракт и rollout-граница: [FLUTTER_REVIEW_DISCARD_HANDOFF.md](FLUTTER_REVIEW_DISCARD_HANDOFF.md). После deployment DELETE с confirm=true&discard_unprocessed=true позволит отказ от незавершённой review-сессии без complete; busy409 сохраняет намерение для повтора. До сигнала READY новый код не считать включённым на текущем USB runtime.
+Точный opt-in контракт и rollout-граница: [FLUTTER_REVIEW_DISCARD_HANDOFF.md](FLUTTER_REVIEW_DISCARD_HANDOFF.md). DELETE с confirm=true&discard_unprocessed=true поддерживается обновлённым USB runtime2932e56 до21:13:41 МСК; позволяет отказ от незавершённой review-сессии без complete. Busy409 сохраняет намерение для повтора после текущего fragment cleanup. API и ASR-worker обновлены вместе, миграции нет.

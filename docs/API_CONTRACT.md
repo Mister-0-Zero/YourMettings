@@ -1169,7 +1169,7 @@ ASR-result и dispatch job фиксируются до модели; для auto
 
 ## Явный discard незавершённой review-записи — 01.11.2026
 
-**Статус:** реализовано/проверяется в изолированном backend clone, до ревью и deployment. Новый код до согласованного reload **backend и ASR-worker** не включён на D:; схема остаётся0011, миграция не нужна. [Flutter handoff](FLUTTER_REVIEW_DISCARD_HANDOFF.md), [отчёт](WORK_REPORT_2026-11-01_review-discard.md).
+**Статус:** functional **f8b2f18** + EOF follow-up **2932e56** прошли471 тест и независимое ревью, совместно развёрнуты на D: **backend и ASR-worker**. USB127.0.0.1:8001 READY до01.11.2026 **21:13:41 МСК**; schema0011, миграции не было, public8000 закрыт. [Flutter handoff](FLUTTER_REVIEW_DISCARD_HANDOFF.md), [отчёт](WORK_REPORT_2026-11-01_review-discard.md).
 
 ```http
 DELETE /api/v1/audio-sessions/{id}?confirm=true&discard_unprocessed=true
@@ -1187,4 +1187,4 @@ Windows in-use/permission/path cleanup failure → **409 audio_cleanup_failed**;
 
 Ответы подтверждения/владения/повторов прежние: без confirm=true422 confirmation_required (даже если discard=true), неверные bool/UUID422 validation_error; неизвестная/чужая404 not_found; первый и повтор DELETE204, GET после удаления404, исходный create с прежним key/body410 audio_session_deleted, другой body с этим ключом409 idempotency_conflict. Повтор может опустить discard после того, как удаление уже закоммичено: durable receipt вернёт204. На network/409/422/503/500 локальный draft и ключ сохраняются; произвольный404 не считать доказательством удаления.
 
-Для включения этой ревизии обязательны обновлённый ASR file-guard код и backend одновременно, под отсутствием активных обработок. Старый worker без guard не должен работать с новым discard path. Это плановый reload после независимого ревью, без новой схемы/службы/зависимостей; до него Flutter сохраняет delete intent в безопасной паузе.
+Для включения этой ревизии обязательны обновлённый ASR file-guard код и backend одновременно, под отсутствием активных обработок. Старый worker без guard не должен работать с новым discard path. Совместный reload после независимого ревью выполнен на USB без новой схемы/службы/зависимостей; Flutter может использовать opt-in после сверки runtime OpenAPI. На другом сервере до такого обновления сохранять delete intent в безопасной паузе.

@@ -1,5 +1,7 @@
 # Отчёт: opt-in discard незавершённого review audio
 
+**Последующий rollout выполнен: REVIEW DISCARD READY** на USB127.0.0.1:8001 до01.11.2026 21:13:41 МСК, код2932e56 (functional f8b2f18), schema0011. Результат в deployment checkpoint ниже; предшествующий review-статус сохранён как история.
+
 **01.11.2026, Москва.** Ветка backend, изолированный clone `C:/Users/Алексей/Documents/Codex/work/YourMettings-backend-offline`, база сравнения **7ba9cdd**. Реализовано и проверено, подготовлено к независимому review/публикации. **На работающий D: новый код не развёрнут**: там остаются faf09db/schema0011 и разрешённая USB-сессия до **21:13:41 МСК**. Mobile/mobile-worktree и посторонний READMI.md не изменялись.
 
 ## Подтверждённая причина
@@ -46,3 +48,23 @@ Cleanup in-use/unsafe path/permission failure409 audio_cleanup_failed откат
 ## Независимое ревью и whitespace follow-up
 
 Координатор принял независимое review f8b2f18 без существенных находок; проверены try-lock, claim recheck, закрытие scratch до finish и cleanup failure. По замечанию удалена лишняя пустая EOF в тесте отдельным follow-up commit, без force-push. Финальный diff --check выполнен; функциональный471-suite не повторялся ради whitespace. Разрешён совместный USB reload backend/ASR с сохранением21:13:41 МСК; фактический результат будет добавлен после runtime smoke.
+
+
+## Deployment checkpoint: совместный API + ASR rollout
+
+01.11.2026 после разрешения координатора выполнен code-only rollout до **2932e56** (functional **f8b2f18**, EOF-only follow-up2932e56) через ff-only. Перед остановкой под user locks исключены active transcript/candidate/ASR/dispatch jobs, проверены и удержаны upload guards. Принадлежность idle API/ASR подтверждена PID, командой и birthtime; непосредственно перед остановкой проверка повторена. Чужие процессы не завершались. Дождались выхода старой ASR-модели, чтобы не смешать старый worker без file guard с новым API.
+
+Миграции **не применялись**, схема осталась **0011**. Подняты новый backend **PID13220** и ASR-worker **PID32008** с новым guard/claim recheck. Здоровые Ollama и Qwen dispatcher **PID10784** переиспользованы. Единственный listener127.0.0.1:8001; authenticated health/auth-me200, без ключа401, runtime OpenAPI содержит optional bool discard_unprocessed/default false. ASR/dispatcher ready; public8000 без listener.
+
+USB expiry **01.11.2026 21:13:41.532843 МСК** (18:13:41.532843 UTC) сохранён точно прежним через --preserve-expiry. .env проверен по хешу без изменений; внешний ключ/expiry/HTTPS, VPN/Firewall/маршруты не менялись. Повторный ввод ключа мобильному пользователю не нужен.
+
+### Реальный synthetic smoke
+
+- Review без chunks/complete: без opt-in409 audio_session_not_deletable, без confirm422, opt-in204, повтор204, GET404, прежний create key/body410.
+- Отдельная review-сессия получила partial durable ACK201/safe_to_delete_local для **64.89с** только синтетической русской Windows TTS (исходный проверенный fixture повторён3раза, WAV PCM16k/mono/16-bit, **2076524байта**). Complete не отправлялся, transcript не создавался, Qwen/summary не запускались.
+- Наблюдался **реальный shared ASR-file guard** работающего GigaAM, DELETE вернул409 audio_session_busy, сессия/chunk и отсутствие receipt сохранились. После закрытия текущей копии повтор DELETE204, ещё один204, GET404, old create key410. Worker дошёл до ready; проверены отсутствие session/chunks и её scratch directory, воскрешения нет.
+- Отпечатки исходных users/folders/summaries/summary_folders/transcripts/audio_sessions/audio_chunks/summary_templates совпали с baseline до обслуживания. Очищены только live synthetic session/chunks; минимальные tombstones намеренного удаления остались по контракту. Пользовательские встречи не использованы для ASR и не изменены.
+
+[Машинный результат runtime smoke](examples/review-discard-deployment-2026-11-01.json). Проверки относятся к API/реальному ASR на loopback, а не к приёмке мобильного UI. Late-worker гонки также покрыты23 PostgreSQL/Windows тестами; runtime после cleanup не обнаружил воскрешения.
+
+471-suite и Qwen generation при rollout не повторялись: функциональный f8b2f18 уже прошёл471 тест и независимое ревью, follow-up только whitespace. Финальный diff --check, Markdown file links и secret scan выполнены для документационного commit. Его hash доступен в истории отчёта/итоговом сообщении. D:/.../READMI.md сохранён; mobile/mobile-worktree не менялись.

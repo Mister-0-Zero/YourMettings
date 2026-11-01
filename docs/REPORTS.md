@@ -8,7 +8,7 @@
 
 ## Отчёты по задачам
 
-- [01.11.2026 — opt-in discard незавершённого review audio](WORK_REPORT_2026-11-01_review-discard.md):471 тест, safe ASR-file guard/Windows cleanup, новая query опция без миграции; до независимого review новый код не развёрнут.
+- [01.11.2026 — opt-in discard незавершённого review audio](WORK_REPORT_2026-11-01_review-discard.md):471 тест, независимое review принято, f8b2f18/2932e56 совместно развёрнуты API+ASR без миграции; real busy409/retry204 smoke прошёл, USB READY до21:13:41 МСК.
 
 - [01.11.2026 — USB rollout automatic/schema0011](WORK_REPORT_2026-11-01_offline-deploy.md): faf09db опубликован, private backup проверен, реальные ASR/Qwen/retry/cancel/restart прошли; USB ready: новая отдельно разрешённая process-only сессия до01.11 21:13:41 МСК; ключ/аккаунт прежние, public доступ не продлён. Первоначальный rollout сохранён в истории отчёта.
 
