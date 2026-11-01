@@ -314,4 +314,3 @@ def test_delete_after_files_close_before_finish_never_resurrects(client,database
         finally:release.set()
         assert inference.result(timeout=10) is False
     assert client.get(f'{BASE}/{sid}').status_code==404
-

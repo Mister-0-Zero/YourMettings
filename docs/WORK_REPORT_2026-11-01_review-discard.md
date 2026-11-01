@@ -41,3 +41,8 @@ Cleanup in-use/unsafe path/permission failure409 audio_cleanup_failed откат
 **Миграция не нужна**, схема остаётся0011; новых служб/зависимостей нет. Commit/hash реализации доступен в истории отчёта и итоговом сообщении после публикации в backend. Перед rollout нужен независимый review. После разрешения проверить отсутствие active jobs/uploads и согласованно обновить **backend и ASR-worker**, сохранив текущий USB expiry21:13:41 и public8000 closed. Новый discard path нельзя включать рядом со старым ASR worker без file guard. Здоровые Ollama/dispatcher перезапускать не требуется, внешний доступ/секреты не продлевать.
 
 Текущий D runtime в рамках правки не останавливался, его состояние не менялось после отдельно опубликованной смены USB-сессии7ba9cdd. Новых подагентов для этой узкой реализации не запускалось; независимое ревью организует координатор. Следующий шаг — review этого конкретного diff, затем разрешённый reload и targeted runtime discard smoke.
+
+
+## Независимое ревью и whitespace follow-up
+
+Координатор принял независимое review f8b2f18 без существенных находок; проверены try-lock, claim recheck, закрытие scratch до finish и cleanup failure. По замечанию удалена лишняя пустая EOF в тесте отдельным follow-up commit, без force-push. Финальный diff --check выполнен; функциональный471-suite не повторялся ради whitespace. Разрешён совместный USB reload backend/ASR с сохранением21:13:41 МСК; фактический результат будет добавлен после runtime smoke.
