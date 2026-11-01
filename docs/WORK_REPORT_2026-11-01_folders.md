@@ -44,3 +44,11 @@ Read-only project_advisor `offline_pipeline_advice` использован дл�
 Миграция для этапа папок **не нужна**. Публикация в backend и штатный USB reload разрешены координатором; при подготовке этого коммита действующий процесс ещё не перезапускался. ASR, Qwen, .env, demo-доступ, VPS и сетевые настройки не менялись. Mobile и отдельный mobile-worktree не редактировались. Чужой READMI.md сохранён.
 
 Hash реализации доступен в истории этого отчёта; исходный a788229 не является commit этой доработки. Следующий шаг: безопасный USB rollout и runtime smoke с synthetic встречей, затем отдельная реализация согласованного offline/automatic этапа. Этот отчёт не подтверждает runtime-ready нового API до разрешённого deployment.
+
+## Deployment checkpoint — 01.11.2026
+
+Реализация **1f7f23d** успешно опубликована в origin/backend. По разрешению координатора запущен USB-only backend **127.0.0.1:8001**, один listener PID 26904, схема **0010**. Process-only demo expiry: **01.11.2026 17:07:46 МСК** (14:07:46 UTC). PostgreSQL и схема проверены launcher; Ollama отвечает и выбранная установленная модель прогрета; ASR ready. Существующие сервисы не останавливались. Старый USB listener на момент запуска отсутствовал, поэтому завершение чужого/живого процесса не потребовалось.
+
+Проверены authenticated health/auth-me и runtime OpenAPI с expected_folder_ids. Реальный synthetic smoke: одна встреча A,C → B,C, move200, точный повтор200 без изменения ответа, устаревший другой target409 summary_folders_conflict, два размещения одного ID. Исходник, content, version и ID не изменились. Qwen успешно создала один synthetic summary; summary и все три synthetic папки удалены, пользовательские встречи не изменялись. [Машинный результат](examples/folders-deployment-2026-11-01.json).
+
+Публичный порт8000 остаётся без listener; публичный срок/ключ и .env не менялись (launcher проверяет хеш .env). HTTPS не продлевался. Это BACKEND FOLDERS READY для USB приёмки Flutter; проверка мобильного UI отдельная. Следующий этап реализуется в отдельном clone `C:/Users/Алексей/Documents/Codex/work/YourMettings-backend-offline`, чтобы D: и запущенный folder baseline оставались изолированы. Его миграция/код до общего ревью не развёртываются.

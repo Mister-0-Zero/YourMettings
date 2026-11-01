@@ -1,0 +1,14 @@
+{
+  "transport": "usb-loopback",
+  "backend_commit": "1f7f23d",
+  "health": 200,
+  "live_placement_schema": true,
+  "real_qwen": "ready",
+  "move": 200,
+  "noop_repeat": 200,
+  "stale_other_target": 409,
+  "same_id_source_content_version": true,
+  "two_folders_one_document": true,
+  "user_meetings_modified": false,
+  "synthetic_data_cleaned": true
+}
