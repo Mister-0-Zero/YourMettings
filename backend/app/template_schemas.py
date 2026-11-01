@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator, computed_field
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 Instruction = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
@@ -69,6 +69,14 @@ class TemplateOut(TemplateInput):
     owner_user_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def version(self) -> str:
+        import hashlib
+        import json
+        meaningful = TemplateInput(**{key: getattr(self, key) for key in TemplateInput.model_fields}).model_dump(mode="json")
+        return hashlib.sha256(json.dumps(meaningful, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 class TemplateList(BaseModel):

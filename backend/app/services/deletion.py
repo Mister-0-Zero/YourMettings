@@ -16,7 +16,7 @@ def lock_user_data(db, user_id=None):
 
 
 def has_external_references(db, transcript_id):
-    return has_references(db, "transcripts", [transcript_id], ignored={("audio_sessions", "transcript_id")})
+    return has_references(db, "transcripts", [transcript_id], ignored={("audio_sessions", "transcript_id"), ("processing_jobs", "transcript_id")})
 
 
 def has_references(db, target, ids, *, ignored=frozenset()):

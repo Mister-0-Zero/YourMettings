@@ -34,6 +34,10 @@ def create(body: AudioSessionInput, response: Response,
     db: Session = Depends(get_db)):
     lock_user_data(db)
     params = body.model_dump(mode="json")
+    if params.get("processing_mode") == "review":
+        params.pop("processing_mode", None)
+    if params.get("expected_template_version") is None:
+        params.pop("expected_template_version", None)
     # Preserve pre-template fingerprints and durable deletion receipts.
     if params.get("template_id") is None:
         params.pop("template_id", None)
@@ -53,11 +57,18 @@ def create(body: AudioSessionInput, response: Response,
             response.status_code = 200
             return session_response(db, existing)
     validate_folders(db, body.folder_ids)
+    # Cancelled automatic sessions do not reserve a recorder slot.
     active = db.scalar(select(func.count()).select_from(AudioSession).where(
-        AudioSession.user_id == current_user_id(db), AudioSession.status.in_(("recording", "transcribing", "failed"))))
+        AudioSession.user_id == current_user_id(db), AudioSession.status.in_(("recording", "transcribing", "failed")),
+        func.coalesce(AudioSession.pipeline_config["phase"].astext, "") != "cancelled"))
     if active >= settings.audio_max_active_sessions_per_user:
         fail(429, "audio_capacity_exceeded", "Завершите активную запись или обработку перед созданием новой.")
     item = AudioSession(user_id=current_user_id(db), request_data=params, request_hash=digest, idempotency_key=idempotency_key)
+    if body.processing_mode == "automatic":
+        from app.services.audio_pipeline import snapshot_parameters
+        item.pipeline_config = {"mode": "automatic", "phase": "receiving", "error_code": None,
+            "title": body.title, "folder_ids": [str(fid) for fid in body.folder_ids],
+            "options": snapshot_parameters(db, body)}
     db.add(item)
     db.commit()
     return session_response(db, item)
@@ -118,6 +129,8 @@ async def upload(id: UUID, request: Request, response: Response,
             session.info["user_id"] = user_id
             lock_user_data(session)
             item = owned_session(session, id, lock=True)
+            if item.pipeline_config and item.pipeline_config["phase"] == "cancelled":
+                fail(409, "pipeline_cancelled", "Автоматическая встреча отменена.")
             existing = session.scalar(select(AudioChunk).where(AudioChunk.session_id == id, AudioChunk.sequence_number == sequence_number))
             if existing:
                 return duplicate_chunk(existing, digest, start_ms, overlap_ms), True
@@ -145,6 +158,8 @@ async def upload(id: UUID, request: Request, response: Response,
 def complete(id: UUID, body: AudioComplete, db: Session = Depends(get_db)):
     lock_user_data(db)
     item = owned_session(db, id, lock=True)
+    if item.pipeline_config and item.pipeline_config["phase"] == "cancelled":
+        fail(409, "pipeline_cancelled", "Автоматическая встреча отменена.")
     if body.expected_chunk_count > settings.audio_max_chunks:
         fail(422, "invalid_chunk_count", "Превышен лимит фрагментов.")
     if item.expected_chunk_count is not None and item.expected_chunk_count != body.expected_chunk_count:
@@ -164,6 +179,8 @@ def retry(id: UUID, body: AudioRetry, db: Session = Depends(get_db)):
     item = owned_session(db, id, lock=True)
     if item.transcript_id is not None:
         return session_response(db, item)
+    if item.pipeline_config and item.pipeline_config["phase"] == "cancelled":
+        fail(409, "pipeline_cancelled", "Автоматическая встреча отменена.")
     chunks = db.scalars(select(AudioChunk).where(AudioChunk.session_id == id)).all()
     if body.sequence_numbers is not None and not set(body.sequence_numbers).issubset({c.sequence_number for c in chunks}):
         fail(404, "not_found", "Запрошенный фрагмент ещё не загружен.")
@@ -198,6 +215,38 @@ def confirm(id: UUID, body: AudioConfirm, tasks: BackgroundTasks, response: Resp
         fail(409, "review_outdated", "Текст изменился после просмотра; перечитайте транскрипт.")
     if item.boundary_warnings and not body.boundaries_reviewed:
         fail(409, "boundary_review_required", "Проверьте и при необходимости исправьте границы фрагментов.")
+    if transcript.processing_status == "summarizing":
+        fail(409, "pipeline_busy", "Обработка уже выполняется.")
+    if item.pipeline_config:
+        from app.services.variants import guard_source_selection, check_capacity
+        from app.services.audio_pipeline import enqueue_automatic
+        from app.services.template_catalog import resolve_template_snapshot
+        guard_source_selection(db, transcript.id)
+        check_capacity(db)
+        validate_folders(db, body.folder_ids)
+        config = item.pipeline_config
+        options = body.generation_options()
+        old_options = {key: value for key, value in config["options"].items() if key != "template_snapshot"}
+        # Same accepted parameters keep their original snapshot even if the catalog changed.
+        resolved = config["options"] if old_options == options else {
+            **options, "template_snapshot": resolve_template_snapshot(db, body.template_id)}
+        if body.expected_template_version is not None and resolved["template_snapshot"]["version"] != body.expected_template_version:
+            fail(409, "template_version_conflict", "Подтвердите выбранный снимок шаблона.")
+        item.pipeline_config = {**config, "title": body.title, "folder_ids": [str(fid) for fid in body.folder_ids],
+            "options": resolved, "reviewed_source_hash": body.reviewed_text_sha256}
+        item.request_data = {key: value for key, value in body.model_dump(mode="json").items()
+            if key not in ("confirm", "reviewed_text_sha256", "boundaries_reviewed")}
+        item.request_data = {**item.request_data, "processing_mode": "automatic"}
+        # Explicit verified confirmation can resume a previous cancellation.
+        item.pipeline_config = {**item.pipeline_config, "phase": "review_required"}
+        job = enqueue_automatic(db, item, transcript)
+        db.flush()
+        result = processing_response(db, transcript)
+        db.commit()
+        if job:
+            from app.services.jobs import run_job
+            tasks.add_task(run_job, sessionmaker(db.get_bind(), expire_on_commit=False), job.id, generator)
+        return result
     item.status = "completed"
     item.request_data = {key: value for key, value in body.model_dump(mode="json").items()
         if key not in ("confirm", "reviewed_text_sha256", "boundaries_reviewed")}

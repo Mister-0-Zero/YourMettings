@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
     )
+    qwen_lease_seconds: float = Field(60, ge=1)
+    qwen_heartbeat_seconds: float = Field(15, gt=0)
+    qwen_max_deliveries: int = Field(3, ge=1, le=10)
+    qwen_job_deadline_seconds: int = Field(1800, ge=10, le=7200)
     database_url: str = Field("", repr=False)
     test_database_url: str = Field("", repr=False)
     auth_secret: str = Field("", repr=False)
@@ -22,6 +26,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_demo_configuration(self):
+        if self.qwen_heartbeat_seconds >= self.qwen_lease_seconds:
+            raise ValueError("QWEN_HEARTBEAT_SECONDS must be smaller than QWEN_LEASE_SECONDS")
         if self.demo_enabled:
             if not re.fullmatch(r"[A-Za-z0-9_-]{43,256}", self.demo_secret):
                 raise ValueError("DEMO_SECRET must contain 43-256 random URL-safe characters")

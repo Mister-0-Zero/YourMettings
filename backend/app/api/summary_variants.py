@@ -86,6 +86,8 @@ def create_selection(body: SelectionInput, response: Response, idempotency_key: 
             fail(404, "not_found", "Аудиосессия не найдена.")
         if audio.status != "ready_for_review" or audio.transcript_id is None:
             fail(409, "transcript_not_ready", "Для сохранённой встречи используйте summary_id; для новой дождитесь проверки ASR.")
+        if audio.pipeline_config and audio.pipeline_config.get("mode") == "automatic":
+            fail(409, "automatic_confirmation_required", "Подтвердите SHA и границы через audio-sessions confirm; результат сохранится автоматически.")
         source = owned_transcript(db, audio.transcript_id, lock=True)
         if not body.confirm:
             fail(422, "confirmation_required", "Подтвердите проверенный транскрипт.")
@@ -148,7 +150,8 @@ def accept_candidate_request(db, item, body, key):
     if body.template_id is not None:
         options["template_id"] = str(body.template_id)
     options["template_snapshot"] = resolve_template_snapshot(db, body.template_id)
-    generation_hash = fingerprint(options)
+    generation_hash = fingerprint({**options, "template_snapshot": {
+        key: value for key, value in options["template_snapshot"].items() if key != "version"}})
     candidate = db.scalar(select(SummaryCandidate).where(SummaryCandidate.selection_id == item.id,
         SummaryCandidate.generation_hash == generation_hash,
         SummaryCandidate.status.in_(["queued", "generating", "ready"])).order_by(SummaryCandidate.created_at).limit(1))
@@ -171,10 +174,12 @@ def create_candidate(id: UUID, body: CandidateInput, tasks: BackgroundTasks,
     item = meeting_session(db, id, lock=True)
     candidate, created = accept_candidate_request(db, item, body, idempotency_key)
     db.flush()
+    from app.services.jobs import enqueue, run_job
+    job = enqueue(db, candidate=candidate) if created else None
     result = candidate_response(candidate, item)
     db.commit()
     if created:
-        tasks.add_task(run_candidate, sessionmaker(db.get_bind(), expire_on_commit=False), candidate.id, generator)
+        tasks.add_task(run_job, sessionmaker(db.get_bind(), expire_on_commit=False), job.id, generator)
     return result
 
 
@@ -249,6 +254,8 @@ def accept_selection(id: UUID, body: AcceptCandidate, db: Session = Depends(get_
     audio = db.scalar(select(AudioSession).where(AudioSession.transcript_id == source.id).with_for_update())
     if audio:
         audio.status = "completed"
+        from app.services.audio_pipeline import phase
+        phase(audio, "completed")
     db.flush()
     response = summary_response(db, result)
     item.accepted_candidate_id = candidate.id

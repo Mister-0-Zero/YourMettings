@@ -42,6 +42,9 @@ def summary_version(item):
 
 def clear_selection(db, item, status, *, selected_id=None):
     """Keep operation/key tombstones, remove source and unchosen result payloads."""
+    from app.services.jobs import cancel_target_jobs
+    ids = list(db.scalars(select(SummaryCandidate.id).where(SummaryCandidate.selection_id == item.id)))
+    cancel_target_jobs(db, candidate_ids=[id for id in ids if id != selected_id])
     source = db.get(Transcript, item.transcript_id) if item.transcript_id else None
     for candidate in db.scalars(select(SummaryCandidate).where(SummaryCandidate.selection_id == item.id)):
         if candidate.id != selected_id:
@@ -78,7 +81,10 @@ def expire_selections(db):
 
 def initialize_variants(db):
     expire_all_selections(db)
-    db.execute(update(SummaryCandidate).where(SummaryCandidate.status.in_(["queued", "generating"]))
+    from app.db.job_models import ProcessingJob
+    db.execute(update(SummaryCandidate).where(SummaryCandidate.status.in_(["queued", "generating"]),
+        ~select(ProcessingJob.id).where(ProcessingJob.candidate_id == SummaryCandidate.id,
+            ProcessingJob.status.in_(["queued", "running"])).exists())
         .values(status="error", error_code="processing_interrupted", completed_at=now()))
 
 
@@ -160,25 +166,35 @@ class CandidateCancelled(Exception):
     pass
 
 
-def run_candidate(factory, candidate_id, generator):
+def run_candidate(factory, candidate_id, generator, *, lease=None):
     attempt = None
     with factory() as lookup:
         candidate = lookup.get(SummaryCandidate, candidate_id)
         selection = lookup.get(SummarySelection, candidate.selection_id) if candidate else None
         if selection is None:
+            if lease:
+                raise RuntimeError("target_closed")
             return
         owner_id = selection.user_id
+        if lease and owner_id != lease.record["owner_user_id"]:
+            raise RuntimeError("target_owner_changed")
     try:
         with factory.begin() as db:
             db.info["user_id"] = owner_id
             lock_user_data(db)
             candidate = db.get(SummaryCandidate, candidate_id)
-            if candidate is None or candidate.status != "queued":
+            if candidate is None or candidate.status not in (("queued", "generating") if lease else ("queued",)):
+                if lease:
+                    raise CandidateCancelled()
                 return
+            if lease:
+                lease.check(db)
             session = owned_selection(db, candidate.selection_id, lock=True)
             if session.status != "open" or session.expires_at <= now():
                 if session.status == "open":
                     clear_selection(db, session, "expired")
+                if lease:
+                    raise CandidateCancelled()
                 return
             candidate.status = "generating"
             source, options, attempt = session.source_text, dict(candidate.options), candidate.attempt
@@ -196,6 +212,8 @@ def run_candidate(factory, candidate_id, generator):
                     raise CandidateCancelled()
                 if now() >= deadline:
                     raise LLMError("llm_timeout")
+                if lease:
+                    lease.check(db)
                 if metadata:
                     candidate.processing_metadata = metadata
 
@@ -211,18 +229,30 @@ def run_candidate(factory, candidate_id, generator):
             lock_user_data(db)
             candidate = db.get(SummaryCandidate, candidate_id)
             if candidate is None or candidate.status != "generating" or candidate.attempt != attempt:
+                if lease:
+                    raise CandidateCancelled()
                 return
             session = owned_selection(db, candidate.selection_id, lock=True)
             if session.status != "open" or session.expires_at <= now():
                 if session.status == "open":
                     clear_selection(db, session, "expired")
+                if lease:
+                    raise CandidateCancelled()
                 return
+            if lease:
+                lease.check(db)
             candidate.content, candidate.status = content, "ready"
             candidate.processing_metadata = metadata
             candidate.completed_at = now()
+            if lease:
+                lease.done(db)
     except CandidateCancelled:
+        if lease:
+            raise
         return
     except Exception as exc:
+        if lease:
+            raise
         code = exc.code if isinstance(exc, LLMError) else "processing_failed"
         with factory.begin() as db:
             db.info["user_id"] = owner_id
@@ -234,5 +264,7 @@ def run_candidate(factory, candidate_id, generator):
             if session.status != "open" or session.expires_at <= now():
                 if session.status == "open":
                     clear_selection(db, session, "expired")
+                if lease:
+                    raise CandidateCancelled()
                 return
             candidate.status, candidate.error_code, candidate.completed_at = "error", code, now()

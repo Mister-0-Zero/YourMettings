@@ -1549,6 +1549,229 @@
         }
       }
     },
+    "/api/v1/audio-sessions/{id}/pipeline/retry": {
+      "post": {
+        "tags": [
+          "audio pipeline"
+        ],
+        "summary": "Retry",
+        "operationId": "retry_api_v1_audio_sessions__id__pipeline_retry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioPipelineRetry"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioSessionOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or requested folder/template not accessible"
+          },
+          "409": {
+            "description": "pipeline_busy, boundary_review_required, transcript_not_ready, summary_exists, idempotency_conflict or template_version_conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-sessions/{id}/pipeline/cancel": {
+      "post": {
+        "tags": [
+          "audio pipeline"
+        ],
+        "summary": "Cancel",
+        "operationId": "cancel_api_v1_audio_sessions__id__pipeline_cancel_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioPipelineCancel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioSessionOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or requested folder/template not accessible"
+          },
+          "409": {
+            "description": "pipeline_busy, boundary_review_required, transcript_not_ready, summary_exists, idempotency_conflict or template_version_conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audio-sessions/{id}/pipeline/parameters": {
+      "put": {
+        "tags": [
+          "audio pipeline"
+        ],
+        "summary": "Update Parameters",
+        "operationId": "update_parameters_api_v1_audio_sessions__id__pipeline_parameters_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioAutomaticParameters"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioSessionOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session or requested folder/template not accessible"
+          },
+          "409": {
+            "description": "pipeline_parameters_locked after complete/cancel, template_version_conflict or idempotency_conflict"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/summary-templates": {
       "get": {
         "tags": [
@@ -2648,6 +2871,89 @@
         ],
         "title": "AcceptCandidate"
       },
+      "AudioAutomaticParameters": {
+        "properties": {
+          "detail_level": {
+            "type": "string",
+            "enum": [
+              "brief",
+              "normal",
+              "detailed"
+            ],
+            "title": "Detail Level",
+            "default": "normal"
+          },
+          "focus_areas": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "tasks",
+                "owners",
+                "deadlines",
+                "decisions",
+                "risks",
+                "disagreements"
+              ]
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Focus Areas"
+          },
+          "additional_instructions": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Additional Instructions",
+            "default": ""
+          },
+          "folder_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Folder Ids"
+          },
+          "expected_template_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Template Version"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "folder_ids",
+          "title"
+        ],
+        "title": "AudioAutomaticParameters"
+      },
       "AudioChunkAccepted": {
         "properties": {
           "accepted": {
@@ -2835,6 +3141,18 @@
             "minItems": 1,
             "title": "Folder Ids"
           },
+          "expected_template_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Template Version"
+          },
           "title": {
             "type": "string",
             "maxLength": 200,
@@ -2877,6 +3195,88 @@
           "reviewed_text_sha256"
         ],
         "title": "AudioConfirm"
+      },
+      "AudioPipelineCancel": {
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AudioPipelineCancel"
+      },
+      "AudioPipelineOut": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "const": "automatic",
+            "title": "Mode"
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "receiving",
+              "asr",
+              "queued_qwen",
+              "generating_qwen",
+              "completed",
+              "needs_input",
+              "review_required",
+              "error",
+              "cancelled"
+            ],
+            "title": "Phase"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "summary_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "phase"
+        ],
+        "title": "AudioPipelineOut"
+      },
+      "AudioPipelineRetry": {
+        "properties": {
+          "parameters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AudioAutomaticParameters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AudioPipelineRetry"
       },
       "AudioRetry": {
         "properties": {
@@ -2946,6 +3346,18 @@
             "maxItems": 100,
             "title": "Folder Ids"
           },
+          "expected_template_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Template Version"
+          },
           "title": {
             "type": "string",
             "maxLength": 200,
@@ -2963,6 +3375,15 @@
               }
             ],
             "title": "Template Id"
+          },
+          "processing_mode": {
+            "type": "string",
+            "enum": [
+              "review",
+              "automatic"
+            ],
+            "title": "Processing Mode",
+            "default": "review"
           }
         },
         "additionalProperties": false,
@@ -3054,6 +3475,16 @@
               }
             ],
             "title": "Processing"
+          },
+          "pipeline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AudioPipelineOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "parameters": {
             "$ref": "#/components/schemas/AudioSessionInput"
@@ -3415,6 +3846,18 @@
             "maxItems": 100,
             "minItems": 1,
             "title": "Folder Ids"
+          },
+          "expected_template_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Template Version"
           },
           "title": {
             "type": "string",
@@ -3891,6 +4334,18 @@
             "maxItems": 100,
             "minItems": 1,
             "title": "Folder Ids"
+          },
+          "expected_template_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Template Version"
           },
           "title": {
             "type": "string",
@@ -4572,6 +5027,11 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "readOnly": true
           }
         },
         "additionalProperties": false,
@@ -4584,7 +5044,8 @@
           "is_default",
           "owner_user_id",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "version"
         ],
         "title": "TemplateOut"
       },

@@ -2,14 +2,41 @@ from typing import Annotated, Literal
 from uuid import UUID
 from datetime import datetime
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 from app.schemas import Input, ProcessInput
+
+
+class AudioAutomaticParameters(ProcessInput):
+    expected_template_version: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+
+
+class AudioPipelineRetry(Input):
+    parameters: AudioAutomaticParameters | None = None
+
+
+class AudioPipelineCancel(Input):
+    confirm: bool = False
+
+
+class AudioPipelineOut(BaseModel):
+    mode: Literal["automatic"]
+    phase: Literal["receiving", "asr", "queued_qwen", "generating_qwen", "completed", "needs_input", "review_required", "error", "cancelled"]
+    error_code: str | None = None
+    summary_id: UUID | None = None
 
 
 class AudioSessionInput(ProcessInput):
     # Recording can start before placement; confirmation still uses ProcessInput.
     folder_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    processing_mode: Literal["review", "automatic"] = "review"
+    expected_template_version: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+
+    @model_validator(mode="after")
+    def automatic_placement(self):
+        if self.processing_mode == "automatic" and not self.folder_ids:
+            raise ValueError("Automatic processing requires at least one folder")
+        return self
 
 
 class AudioComplete(Input):
@@ -59,6 +86,7 @@ class AudioSessionOut(BaseModel):
     transcript_id: UUID | None
     transcript_sha256: str | None
     processing: dict | None
+    pipeline: AudioPipelineOut | None = None
     parameters: AudioSessionInput
     error_code: str | None
     boundary_warnings: list[dict]

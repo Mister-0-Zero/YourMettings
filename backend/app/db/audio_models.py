@@ -15,6 +15,7 @@ class AudioSession(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(24), default="recording")
     request_data: Mapped[dict] = mapped_column(JSONB)
+    pipeline_config: Mapped[dict | None] = mapped_column(JSONB)
     idempotency_key: Mapped[str | None] = mapped_column(String(128))
     request_hash: Mapped[str] = mapped_column(String(64))
     expected_chunk_count: Mapped[int | None] = mapped_column(Integer)

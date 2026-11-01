@@ -1,5 +1,16 @@
 # Backend YourMettings
 
+## Durable Qwen / automatic (код 01.11.2026, до deployment review)
+
+Новая реализация находится в изолированной копии; текущий USB baseline D: не обновлён. До согласованного deployment не применять production-миграцию и не запускать второй набор сервисов рядом с ним. Контракт и rollout ограничения: [API_CONTRACT.md](../docs/API_CONTRACT.md#durable-qwen-и-opt-in-automatic--01112026), [Flutter handoff](../docs/FLUTTER_OFFLINE_PIPELINE_HANDOFF.md), [отчёт](../docs/WORK_REPORT_2026-11-01_offline-pipeline.md).
+
+После разрешённой установки: schema0011, затем штатный start-dev.ps1/ярлык проверяет PostgreSQL, Ollama, ASR, **один Qwen dispatcher**, FastAPI. Модели не скачиваются. Ручной запуск dispatcher из backend: `.venv\Scripts\python.exe scripts\qwen_worker.py` в правильно настроенном окружении. Второй dispatcher на той же БД завершится без работы: singleton advisory lock. Повтор launcher не дублирует worker.
+
+Dispatcher и jobs имеют отдельные heartbeat. Во время долгой модели/GPU wait job lease и heartbeat процесса продолжают обновляться. Lease60с/heartbeat15с, до3 доставок/deadline30мин по умолчанию; QWEN_* настройки описаны в контракте, heartbeat должен быть меньше lease. При job-backed работе restart FastAPI не сбрасывает queued/generating в interrupted. Crash dispatcher восстанавливается после истечения lease и его нового запуска; автоматической Windows-службы не добавлено. Результаты ограждены epoch/owner/attempt, но вычисление модели после crash может повториться.
+
+Остановка dispatcher в его консоли: Ctrl+C/Ctrl+Break — прекращает брать новые jobs и дожидается текущего вызова с heartbeat. Штатная остановка backend — по существующей инструкции ниже; процессы по чужому PID не завершать. При аварийном завершении lease позволяет повторную доставку. Никаких секретов/исходных текстов в worker logs нет. Для review_required automatic используйте явный confirm: после проверки он всё равно автоматически сохраняет Summary.
+
+
 ## Текущая удалённая демонстрация
 
 Публичный адрес: **https://194.117.80.169/api/v1**. Все запросы, включая health, требуют `X-Demo-Key`. Ключ вводится пользователем, в APK не встраивается; локальный приватный файл: `%LOCALAPPDATA%\YourMettings\demo-access-key.txt`. Демо работает с отдельной безопасной историей; прежние встречи сохранены и изолированы. Почтовый вход временно выключен.

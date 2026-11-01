@@ -176,6 +176,9 @@ JSON до 2 MiB по фактически полученным байтам, в�
 | DELETE | /audio-sessions/{id}?confirm=true | Удалить ready_for_review до первого запуска Qwen | 204, включая повтор подтверждённого удаления |
 | POST | /audio-sessions/{id}/complete | Закрыть запись с ожидаемым количеством | 202 |
 | POST | /audio-sessions/{id}/retry | Повторить ASR неудачных фрагментов | 200 |
+| PUT | /audio-sessions/{id}/pipeline/parameters | Обновить automatic-настройки до complete | 200 |
+| POST | /audio-sessions/{id}/pipeline/retry | Retry/repair automatic по готовому источнику | 202 / 200 повтор |
+| POST | /audio-sessions/{id}/pipeline/cancel | Явная отмена automatic без удаления | 200 |
 | POST | /audio-sessions/{id}/confirm | Подтвердить проверенный текст и запустить Qwen | 202; 200 при повторе |
 | GET/POST | /summary-templates | Каталог / создание пользовательского шаблона | 200 / 201 |
 | GET/PUT/DELETE | /summary-templates/{id} | Получение / полная замена / удаление шаблона | 200 / 200 / 204 |
@@ -267,7 +270,7 @@ JSON до 2 MiB по фактически полученным байтам, в�
 - Сравнение использует неизменяемые исходные параметры: позднейшие правки текста, summary или связей с папками не меняют идентичность принятого запроса.
 - Ключи общие для обоих endpoints создания: использование одного ключа в `/transcripts` и `/transcripts/process` даёт 409. Не переиспользуйте ключи разных операций.
 - Без ключа каждый запрос создаёт отдельный transcript и запускает отдельную обработку. Для сетевых повторов обязательно используйте ключ.
-- Ошибка проверки до принятия не сохраняет transcript и не занимает ключ. После commit данные сохраняются даже при сбое до постановки фоновой задачи. На следующем старте сервера незавершённые записи становятся error / processing_interrupted; доступен явный повтор по ID. Это восстановление при перезапуске, не устойчивая очередь.
+- Ошибка проверки до принятия не сохраняет transcript и не занимает ключ. Источник, параметры и durable ProcessingJob фиксируются одной транзакцией. Потерянный callback не теряет задание: PostgreSQL dispatcher доставляет queued/истёкшие leases. Перезапуск сохраняет job-backed summarizing; только старые записи без durable job переходят в processing_interrupted. Точный повтор POST с прежним ключом возвращает тот же transcript и актуальный статус, не новую генерацию.
 
 Ошибки запроса: 404 `not_found` для недоступных папок; 409 `idempotency_conflict`; 413 `text_too_large`; 422 `validation_error`; 503 `llm_not_configured` или `database_unavailable`; 500 `internal_error`. Ошибки генерации после принятия читаются через polling, а не как ошибка первоначального POST.
 
@@ -326,7 +329,7 @@ POST /transcripts/{id}/process
 
 Для `POST /transcripts/{id}/process`: повтор во время обработки возвращает текущий статус (202), не меняет название/папки принятого запроса и не запускает второй вызов. После успеха возвращает существующий результат (200), сохраняя ручные правки даже при других настройках. После ошибки повторный POST по ID запускает новую попытку с указанными параметрами. После удаления summary повтор по ID возможен, только если источник сохранён из-за зависимостей; иначе 404. Идемпотентный повтор `/transcripts/process` возвращает состояние существующего transcript и сам не запускает новую попытку, пока запись с ключом существует.
 
-При удалении последнего summary транскрипт удаляется, если нет других summary, активной обработки и внешних ссылок. Если зависимость сохраняет транскрипт, постоянная блокировка после первого успеха остаётся. При перезапуске backend незавершённая обработка переходит в error; автоматическая повторная генерация не выполняется. MVP запускается одним процессом Uvicorn, без нескольких workers.
+При удалении последнего summary транскрипт удаляется, если нет других summary, активной обработки и внешних ссылок. Если зависимость сохраняет транскрипт, постоянная блокировка после первого успеха остаётся. При перезапуске job-backed обработка сохраняется и восстанавливается dispatcher по lease; только legacy-операции без job становятся error/processing_interrupted. MVP запускается одним процессом Uvicorn, без нескольких workers.
 
 ```json
 {
@@ -479,7 +482,7 @@ name: 1–200 символов. parent_id — null или UUID своей пап
 }
 ```
 
-`text` отсутствует. Название обязательно (1–200 символов после удаления внешних пробелов); Flutter формирует его с датой и временем начала записи. Только при создании аудиосессии `folder_ids` необязателен: отсутствие поля равнозначно `[]`, скрытая папка не создаётся. Если папки указаны, допустимо до 100 различных UUID существующих доступных пользователю папок; повторяющиеся UUID или более 100 элементов — 422, неизвестная/чужая папка — 404. `null` вместо списка запрещён (422). Остальные настройки необязательны и имеют прежние значения по умолчанию; их можно выбрать вместе с папками после транскрибации при confirm.
+`text` отсутствует. Название обязательно (1–200 символов после удаления внешних пробелов); Flutter формирует его с датой и временем начала записи. В режиме review (по умолчанию) при создании аудиосессии `folder_ids` необязателен: отсутствие поля равнозначно `[]`, скрытая папка не создаётся. Если папки указаны, допустимо до 100 различных UUID существующих доступных пользователю папок; повторяющиеся UUID или более 100 элементов — 422, неизвестная/чужая папка — 404. `null` вместо списка запрещён (422). Остальные настройки необязательны и имеют прежние значения по умолчанию; их можно выбрать вместе с папками после транскрибации при confirm.
 
 Успех **201**, повтор ключа с теми же параметрами — **200** и та же сессия. Для идемпотентности запросы без `folder_ids` и с явным `folder_ids: []` считаются одинаковыми в обоих направлениях. Другой набор папок или другие параметры с тем же ключом — **409 idempotency_conflict**. После явного DELETE незавершённой аудиовстречи повтор исходного POST с её прежним ключом и теми же исходными параметрами возвращает **410 audio_session_deleted**, новая сессия не создаётся; другие параметры с этим ключом по-прежнему дают 409. Порядок folder_ids/focus_areas при сравнении несущественен. Конкурентные повторы сериализуются в PostgreSQL. Пространство ключей аудиосессий отдельно от текстовых запросов. Существующие сессии с папками сохраняют прежнее поведение.
 
@@ -497,12 +500,16 @@ name: 1–200 символов. parent_id — null или UUID своей пап
   "transcript_id": null,
   "transcript_sha256": null,
   "processing": null,
+  "pipeline": null,
   "parameters": {
     "title": "Совещание по проекту",
     "folder_ids": [],
     "detail_level": "normal",
     "focus_areas": ["tasks", "owners", "deadlines"],
-    "additional_instructions": "Выдели вопросы без решения."
+    "additional_instructions": "Выдели вопросы без решения.",
+    "template_id": null,
+    "processing_mode": "review",
+    "expected_template_version": null
   },
   "error_code": null,
   "boundary_warnings": [],
@@ -625,13 +632,13 @@ ASR-повтор: `POST /audio-sessions/{id}/retry`, JSON `{}` для всех f
 
 Подтверждение и параметры Qwen фиксируются до вызова LLM. При изменении текста между просмотром и подтверждением — **409 review_outdated**: перечитайте и снова покажите текст. Повтор confirm после принятия, в том числе конкурентный, возвращает **200** с текущим ProcessingOut, не меняет параметры и не запускает Qwen заново. Сессионный Idempotency-Key на confirm не нужен.
 
-Дальше обычный `GET /transcripts/{id}/processing`, при ready — `GET /summaries/{summary_id}`. completed у аудиосессии не означает готовность summary. При ошибке LLM исходный текст сохранён; повторите существующий `POST /transcripts/{id}/process` с параметрами. Повтор confirm сам по себе ошибку LLM не перезапускает. Блокировка текста прежняя: во время генерации; навсегда после первого успеха; после ошибки до первого успеха редактирование разрешено. Summary можно редактировать обычным PATCH.
+Дальше обычный `GET /transcripts/{id}/processing`, при ready — `GET /summaries/{summary_id}`. В legacy review-flow completed у аудиосессии не означает готовность summary; для нового automatic готовность определяется pipeline.phase=completed и summary_id. При ошибке LLM исходный текст сохранён; повторите существующий `POST /transcripts/{id}/process` с параметрами. Повтор confirm сам по себе ошибку LLM не перезапускает. Блокировка текста прежняя: во время генерации; навсегда после первого успеха; после ошибки до первого успеха редактирование разрешено. Summary можно редактировать обычным PATCH.
 
 ### Надёжность, восстановление и ошибки аудио
 
 Временный файл HTTP используется только для загрузки/проверки. Надёжное хранилище MVP — аудиобайты BYTEA в PostgreSQL вместе с метаданными и queued в **одном commit**, что устраняет несогласованность файловой системы и БД. После успешного ASR текст/таймкоды и удаление payload фиксируются одной транзакцией; hash/метаданные остаются для повторных запросов. Ошибочные/ожидающие задания сохраняют payload. Отдельный worker делает только временную рабочую копию; она удаляется после работы, остатки в его выделенной .runtime/asr очищаются следующим владельцем worker. PostgreSQL освобождает место удалённых значений для повторного использования штатно; файл БД не обязан сразу уменьшаться.
 
-Перезапуск FastAPI не сбрасывает ASR-очередь и не останавливает отдельный worker. При старте worker единственный владелец возвращает transcribing в queued, продолжает обработку, не трогая done/failed. Windows mutex и PostgreSQL advisory lock исключают второй worker; generation/attempt блокируют запись устаревшего результата. При потере связи с БД worker останавливается, оставляя задания для восстановления; повторно запустите штатный launcher. Дочерний ASR-процесс следит за жизнью своего координатора и освобождает CUDA при его аварийном завершении. Это восстановление **после запуска процесса**, не Windows-служба с автоперезапуском. Qwen при перезапуске backend сохраняет прежнее поведение error/processing_interrupted с явным повтором.
+Перезапуск FastAPI не сбрасывает ASR-очередь и не останавливает отдельный worker. При старте worker единственный владелец возвращает transcribing в queued, продолжает обработку, не трогая done/failed. Windows mutex и PostgreSQL advisory lock исключают второй worker; generation/attempt блокируют запись устаревшего результата. При потере связи с БД worker останавливается, оставляя задания для восстановления; повторно запустите штатный launcher. Дочерний ASR-процесс следит за жизнью своего координатора и освобождает CUDA при его аварийном завершении. Это восстановление **после запуска процесса**, не Windows-служба с автоперезапуском. Qwen теперь использует durable dispatch: queued и истёкшие leases восстанавливаются без нового пользовательского запроса; только legacy callbacks без job получают processing_interrupted.
 
 | HTTP | code | Действие Flutter |
 |---|---|---|
@@ -844,7 +851,7 @@ Preview теперь хранится в **отдельных техническ
 
 Одинаковый Idempotency-Key и параметры →202 тот же id и текущее состояние, без нового вызова Qwen, включая конкурентный повтор. Другие параметры →409 idempotency_conflict. Отсутствие key создаёт новую операцию при каждом POST. Порядок focus_areas несущественен; порядок разделов существенен. Старый ключ после истечения/отмены →410 preview_expired, без нового теста. Для явного повторного запуска используйте новый ключ.
 
-Готовый preview переживает перезапуск до истечения срока. queued/generating при старте переходят в error/processing_interrupted, без автоматического повторного вызова; явный повтор требует нового ключа. Сбой после commit и до callback покрывается также общим сроком задания:30 минут от принятия, включая ожидание GPU; после него ошибка llm_timeout. Текущий начатый HTTP-вызов модели ограничен существующим серверным timeout, его процесс принудительно не завершается. Незавершённая генерация никогда не публикует результат после отмены/истечения.
+Готовый preview переживает перезапуск до истечения срока. queued/generating с ProcessingJob сохраняются и восстанавливаются dispatcher; legacy callbacks без job получают error/processing_interrupted. Пользовательский повтор после terminal error требует нового ключа; транспортная redelivery сохраняет attempt. Сбой после commit и до callback покрывается также общим сроком задания:30 минут от принятия, включая ожидание GPU; после него ошибка llm_timeout. Текущий начатый HTTP-вызов модели ограничен существующим серверным timeout, его процесс принудительно не завершается. Незавершённая генерация никогда не публикует результат после отмены/истечения.
 
 `DELETE /template-previews/{id}?confirm=true` →204; повтор 204, неизвестный/чужой 404. Без confirm=true →422 confirmation_required. Отмена очищает технические payloads и запрещает позднюю публикацию. GET известного отменённого/истёкшего preview →410 preview_expired; неизвестного/чужого →404 not_found. Flutter сохраняет локальный черновик при любой неопределённости.
 
@@ -985,7 +992,7 @@ Flutter получает text целиком и передаёт его в previ
 
 После error тот же ключ возвращает прежнюю ошибку, не запускает модель. Явный повтор с новым ключом создаёт новую попытку. Готовые варианты продолжают храниться до принятия/отмены/истечения. Одинаковый ключ с другими исходными параметрами →409 idempotency_conflict. Идентичность ключа сравнивает template_id, параметры и источник сессии, а не позднейшую версию каталога.
 
-При перезапуске ready сохраняется, queued/generating становится error/processing_interrupted. Сбой между commit и callback не теряет операцию: при следующем старте либо после общего срока она становится ошибкой. Автоматического повторного Qwen нет. Конкурентные запросы с одним ключом сериализуются PostgreSQL.
+При перезапуске ready сохраняется; queued/generating с ProcessingJob не переводятся в interrupted и продолжаются dispatcher. Сбой после commit до callback покрыт durable job; потеря worker покрыта истечением lease. Только legacy targets без job получают processing_interrupted. Повтор вычисления Qwen после crash возможен, но поздний результат ограждён epoch/attempt, один результат сохраняется атомарно. Конкурентные запросы с одним ключом сериализуются PostgreSQL.
 
 ### 3. «Готово»: принять один вариант вместе с ручными правками
 
@@ -1057,3 +1064,104 @@ GET известной закрытой Selection →200 cancelled/expired; GET 
 |503|database_unavailable|БД временно недоступна|
 
 Миграция 0008 добавляет технические таблицы/квитанции, параметры происхождения и ревизию содержимого summary. Прежние данные/ключи и API сохраняются. Требуются зависимости из обновлённого pyproject, `alembic upgrade head` и один перезапуск backend; ASR-модели/worker не изменены.
+
+
+## Durable Qwen и opt-in automatic — 01.11.2026
+
+**Статус этой ревизии:** реализовано в изолированном backend clone, ожидает совместного ревью. Требует аддитивной миграции **0011** и запуска нового dispatcher, а также обновления backend/ASR-worker. Работающий USB baseline папок остаётся на схеме0010; новые поля/endpoints туда ещё не развёрнуты. [Flutter handoff](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md) и [отчёт реализации](WORK_REPORT_2026-11-01_offline-pipeline.md).
+
+### Явный режим и snapshot
+
+`POST /api/v1/audio-sessions` дополнен optional `processing_mode` (`review` по умолчанию, либо `automatic`) и optional `expected_template_version` (64 lowercase hex). Review сохраняет прежние create→chunks→ASR→проверка→confirm/selection→явное принятие, включая создание без папок. Automatic — ASR→Qwen→**сохранённый Summary в выбранных папках**, без обязательной галочки или candidate screen. Настройки и согласие задаются до ASR:
+
+```json
+{
+  "title":"Совещание 01.11.2026 16:00",
+  "folder_ids":["60f04cf2-6047-4405-a008-a63544d4f357"],
+  "processing_mode":"automatic",
+  "template_id":"019a0120-0000-7000-8000-000000000001",
+  "detail_level":"normal",
+  "focus_areas":[],
+  "additional_instructions":""
+}
+```
+
+Automatic требует 1–100 различных доступных папок; target [] →422 validation_error. Название остаётся обязательным. template_id брать из каталога. Сервер сохраняет полный разрешённый snapshot/options при принятии automatic **до первого ASR/Qwen**. Он хранится в отдельном pipeline_config, не подмешивается в parameters. Редактирование/удаление шаблона после принятия не меняет снимок. GET каталога возвращает вычисляемую TemplateOut.version по значимым полям TemplateInput; она не зависит от owner/timestamps. Если передан expected_template_version и версия не совпала при принятии snapshot →409 template_version_conflict; недоступная папка/шаблон →404. Нет скрытой замены шаблона.
+
+ProcessInput (включая `POST /transcripts/process`, повтор обработки, confirm и retry.parameters) также допускает optional expected_template_version. Text create/process атомарно проверяет версию до принятия snapshot; явный mismatch не занимает Idempotency-Key. Для automatic text Flutter использует существующий `POST /transcripts/process`: durable job сохраняет готовый Summary. Поле processing_mode у текстового endpoint не вводится. Offline review может использовать существующие selection/candidate API после проверки текста.
+
+Для legacy audio hash отсутствие processing_mode равно explicit review, отсутствие expected_template_version равно null; прежние folder_ids omitted/[] и сортировки сохраняются. Nondefault automatic/expected version входят в hash. Старый ключ+тот же исходный JSON →200 той же сессии, другой JSON→409, явно удалённая сессия→410. Поле auto_start_when_online сервер не принимает: это локальное согласие Flutter, отдельное от режима обработки.
+
+### GET/polling
+
+AudioSessionOut сохраняет прежний status enum и добавляет nullable pipeline (для review/старых сессий null). parameters содержит пользовательские поля и default processing_mode=review/expected_template_version=null; после явного repair отражает актуальные параметры, но не внутренний snapshot/job. Pipeline:
+
+```json
+{"mode":"automatic","phase":"queued_qwen","error_code":null,"summary_id":null}
+```
+
+| phase | Значение |
+|---|---|
+| receiving | Принимаются файлы |
+| asr | complete принят, ожидаются/распознаются chunks |
+| queued_qwen | Источник и job приняты; возможен ограниченный infrastructure backoff |
+| generating_qwen | Исполнитель получил job; включает ожидание GPU |
+| completed | Summary и связи сохранены, summary_id заполнен |
+| needs_input | Источник сохранён, Qwen не запущен: folders_unavailable либо generation_busy |
+| review_required | boundary_review_required, нужно проверить источник |
+| error | Ошибка ASR/сборки либо terminal Qwen; источник при его наличии сохранён |
+| cancelled | Явная отмена, данные сохранены до DELETE |
+
+Опрашивать прежний `GET /audio-sessions/{id}`. При completed загрузить `GET /summaries/{summary_id}`. ProcessingOut статусы прежние; pipeline.error_code — причина остановки. Вызов модели не держит транзакцию. Источник становится постоянно неизменяемым только после успешной генерации; во время job summarizing временно блокируется. При error/cancelled до успеха и без открытой Selection допустим PATCH исходного transcript.
+
+### Изменённый offline-черновик после потерянного create ACK
+
+Если create мог сохраниться, сначала exact replay исходного create JSON/Idempotency-Key возвращает ту же сессию. Новую локальную правку не подставлять в этот ключ и не создавать второй неизвестный create. До complete Flutter явно применяет новое намерение к известному ID:
+
+`PUT /api/v1/audio-sessions/{id}/pipeline/parameters`, обязательный Idempotency-Key, JSON полного AudioAutomaticParameters:
+
+```json
+{"title":"Новое название после offline-правки","folder_ids":["60f04cf2-6047-4405-a008-a63544d4f357"],"detail_level":"brief","focus_areas":[],"additional_instructions":""}
+```
+
+Optional template_id/expected_template_version имеют те же правила, что retry.parameters. Целевые папки1–100; сервер проверяет доступность и сохраняет новый разрешённый snapshot. Пользовательские parameters обновляются, original create request_hash остаётся неизменным, initial create replay возвращает ту же сессию. Само обновление Qwen/ASR не запускает и не меняет байты/результаты уже принятых chunks. ASR отдельных фрагментов мог уже идти; меняются только настройки будущего Summary, сборка источника и Qwen ещё не приняты.
+
+Первый и точный повтор→**200 AudioSessionOut**, повтор возвращает сохранённую acceptance receipt. Она проверяется **до** проверки текущего закрытого состояния: lost PUT ACK→complete→точный повтор PUT безопасен и не откатывает completed/настройки. Текущее состояние читать GET. Другой body с тем же ключом→409 idempotency_conflict.
+
+Новая операция допустима только automatic + status recording + phase receiving + expected_chunk_count=null + transcript_id=null. После complete/cancel или enqueue→**409 pipeline_parameters_locked**, данные сохраняются. Update и complete используют один user lock: если update первым принят, complete использует новый snapshot; если complete первым, update отклоняется. Догонять такое изменение скрытым retry нельзя: перечитать GET, сохранить локальную правку и запросить явное решение пользователя. Режим automatic/review этой операцией не меняется; до complete смена режима после неизвестного create требует явной отмены/удаления подтверждённой старой сессии и новой операции, а не второго create вслепую.
+
+Чужая/неизвестная сессия404, review409 automatic_required, отсутствующая папка/шаблон404, версия409 template_version_conflict, неверный ввод/нет ключа422. Отклонённая проверка не занимает ключ. Receipt namespace общий для pipeline PUT parameters и POST retry данной сессии, но fingerprint содержит **имя операции и body**: тот же ключ в другом endpoint→409 idempotency_conflict, квитанции не смешиваются. Для отдельных намерений использовать разные ключи. После DELETE оба endpoint404, старый create по tombstone410.
+
+### Ошибка Qwen, retry и repair
+
+`POST /audio-sessions/{id}/pipeline/retry` требует Idempotency-Key (1–128 символов), JSON `{}` использует прежний snapshot/options. Если нужно явно сменить папки/настройки, JSON:
+
+```json
+{"parameters":{"title":"Исправленное размещение","folder_ids":["60f04cf2-6047-4405-a008-a63544d4f357"],"detail_level":"normal","focus_areas":[],"additional_instructions":""}}
+```
+
+parameters — полный AudioAutomaticParameters (ProcessInput, включая optional template_id/expected_template_version). Его наличие означает явный новый snapshot; отсутствие/null — сохранённый. Приём→202 AudioSessionOut, точный повтор ключа→200 **с неизменяемой квитанцией принятия**, даже если затем обработка завершилась. Актуальное состояние брать GET. Другой JSON с тем же ключом→409 idempotency_conflict; порядок списков в retry body считается частью параметров квитанции (повторять точный body). Ключи scoped к данной сессии и сохраняются в PostgreSQL, конкурентные повторы сериализуются.
+
+Retry с новым ключом допустим после error/needs_input/cancelled, если исходный transcript готов и не был успешно обработан. Нет источника→409 transcript_not_ready (для failed ASR используйте прежний `/retry` фрагментов); активный Qwen→409 pipeline_busy; уже обработанный источник→409 summary_exists. Нет свободной generation capacity→429 generation_busy. Исправление существующих target-папок/шаблона проверяется до принятия; неизвестный→404, версия→409 template_version_conflict. При `{}` с уже исчезнувшей папкой сохраняется needs_input/folders_unavailable и возвращается202 квитанция без запуска Qwen: нужен новый явный repair с новым ключом. ASR при этих действиях не повторяется.
+
+Во время ASR папку можно удалить по прежним правилам. Сначала сохраняется распознанный transcript, затем под тем же user lock проверяются папки/enqueue. Исчезнувшая папка→needs_input с сохранённым источником; скрытых папок/переноса нет. После enqueue summarizing/Selection guards блокируют удаление принятой папки (`folder_processing`).
+
+### review_required сохраняет automatic
+
+Нельзя подтвердить предупреждения без просмотра. Flutter читает и при необходимости редактирует `/transcripts/{transcript_id}`, затем вызывает существующий `POST /audio-sessions/{id}/confirm` с ProcessInput, `confirm:true`, текущим `reviewed_text_sha256` и `boundaries_reviewed:true`. Неверный SHA→409 review_outdated, неподтверждённые границы→409 boundary_review_required. У automatic этот confirm создаёт durable Transcript job и продолжает до **сохранённого Summary**, не переводит в ручной кандидат. Неизменённые options используют ранее принятый snapshot даже после изменения каталога; явно изменённые настройки разрешаются сервером заново и проверяют expected_template_version, если передан. title/folders из подтверждения становятся актуальными parameters. Ответ202 ProcessingOut, далее прежний GET аудиосессии; повтор после успеха200 без новой генерации, во время активной попытки409 pipeline_busy — читать GET.
+
+`POST /summary-selections` с audio_session_id automatic-сессии до сохранения возвращает409 **automatic_confirmation_required**, с указанием использовать confirm. Это предотвращает незаметную смену режима. Варианты уже сохранённого Summary по summary_id разрешены как прежде. Обычный review flow не изменён. После последующей правки исходника ранее подтверждённый SHA становится неактуальным: retry снова требует проверку границ.
+
+### Cancel и DELETE
+
+`POST /audio-sessions/{id}/pipeline/cancel`, JSON `{"confirm":true}` →200 AudioSessionOut/cancelled; повтор200. Нет true→422 confirmation_required. Сессия чужая/неизвестная→404; review-сессия→409 automatic_required; уже успешный источник/Summary→409 summary_exists. Активная загрузка→409 audio_session_busy. Cancel прекращает принятие новых chunks/complete/ASR retry для отменённой записи (409 pipeline_cancelled), fence-ит queued/running Qwen и незавершённые ASR chunks. Поздний результат не сохраняется; текущий HTTP модели может физически завершиться, но не публикуется. Наличие готового источника позволяет явный pipeline/retry без новой ASR. Если источника ещё нет, сохраняются локальные данные; отменённую сессию можно удалить и создать новую с новым ключом.
+
+Cancel не удаляет встречу. Подтверждённый `DELETE /audio-sessions/{id}?confirm=true` дополнительно разрешён для automatic error/needs_input/review_required после ASR и cancelled даже до ASR. Прежние review-ограничения сохраняются. Сначала исключаются активная загрузка/ASR/Qwen, успешный источник, Summary и внешние зависимости; только собственные внутренние job/receipt записи очищаются каскадно. Источник, chunks и технические записи удаляются атомарно; безопасная файловая очистка и tombstone имеют прежние гарантии. Первый/повтор DELETE204, GET404, старый create ключ410; после удаления старый pipeline retry404. Completed-встречи удаляются через Summary.
+
+### Доставка и ограничения
+
+ProcessingJob хранит только target/owner/attempt и dispatch metadata; source/options остаются в Transcript или Selection/Candidate. Claim — PostgreSQL SKIP LOCKED; epoch/lease/owner/attempt проверяются перед прогрессом/финальной записью. Отдельный heartbeat работает во время blocking LLM и GPU wait. По умолчанию lease60с, heartbeat15с, до3 доставок, backoff2/4с и общий deadline1800с. Настройки QWEN_LEASE_SECONDS, QWEN_HEARTBEAT_SECONDS (<lease), QWEN_MAX_DELIVERIES, QWEN_JOB_DEADLINE_SECONDS задаются в окружении. Только llm_unavailable/llm_timeout автоматически redeliver в пределах лимитов; ошибки входа/ответа завершаются error. Infrastructure delivery сохраняет пользовательский attempt; явный retry создаёт новый. Возможен повтор вычисления после crash, **не exactly-once inference**; запись результата и job.done атомарна и ограждена lease.
+
+ASR-result и dispatch job фиксируются до модели; для automatic Summary+folder links+Transcript.ready/first_processed+audio.completed+job.done фиксируются одной последующей транзакцией. При сохранении ошибки transcript не исчезает. Candidate/preview cancellation и TTL fence-ят job; queued job не продлевает Selection TTL. Старые готовые результаты и квитанции сохраняются. Новый dispatcher один на БД (session advisory lock), launcher проверяет PID/heartbeat и не запускает дубль. Post-commit HTTP kick — оптимизация задержки, а не единственное средство доставки. Перезапуск FastAPI не сбрасывает job-backed targets.
+
+Для offline Flutter обязательны отдельные editable draft и frozen submit operation (JSON/key/origin/account). При lost ACK сначала выяснить исход принятой операции точным повтором; не редактировать body под старым ключом и не брать новый ключ вслепую. Explicit auto-start opt-in хранится отдельно, default false; смена профиля/сервера или истечение доступа приостанавливают отправку. Никакие локальные данные не удаляются при сетевом отказе. Новая авторизация, серверный drafts CRUD и публичные jobs endpoints не добавлены.

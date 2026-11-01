@@ -102,6 +102,7 @@ class GenerationOptionsInput(Input):
 
 
 class ProcessInput(FolderAssignment, GenerationOptionsInput):
+    expected_template_version: SummaryVersion | None = None
     title: Name
     template_id: UUID | None = None
 

@@ -174,6 +174,33 @@ class System:
         self.children.append(child)
         print(f"Лог {component}: {log}", flush=True)
 
+    def qwen_state(self):
+        from sqlalchemy import create_engine, text
+        engine = create_engine(self.config.database_url, hide_parameters=True)
+        try:
+            with engine.connect() as db:
+                row = db.execute(text("SELECT pid, EXTRACT(EPOCH FROM (now()-heartbeat_at)) AS age FROM qwen_worker_state WHERE id=1")).mappings().first()
+                active = bool(db.scalar(text("SELECT EXISTS(SELECT 1 FROM processing_jobs WHERE status='running' AND lease_until>now())")))
+            if not row:
+                return {"alive": False, "ready": False}
+            owned = self.powershell(r"""
+                $current=[int]$env:YM_DEV_PID; $rootSeen=$false; $moduleSeen=$false
+                for($i=0;$i -lt 4 -and $current -gt 0;$i++) {
+                    $proc=Get-CimInstance Win32_Process -Filter "ProcessId=$current" -ErrorAction SilentlyContinue
+                    if(-not $proc){break}
+                    if($proc.CommandLine -match 'qwen_worker\.py'){$moduleSeen=$true}
+                    if($proc.CommandLine.IndexOf($env:YM_DEV_ROOT,[StringComparison]::OrdinalIgnoreCase) -ge 0){$rootSeen=$true}
+                    $current=[int]$proc.ParentProcessId
+                }
+                ($rootSeen -and $moduleSeen)|ConvertTo-Json
+            """, pid=str(row["pid"]), root=str(self.config.root))
+            return {"alive": bool(owned), "ready": bool(owned) and (row["age"] < 15 or active)}
+        finally:
+            engine.dispose()
+
+    def start_qwen(self):
+        self.spawn("qwen-worker", [str(self.config.python), str(self.config.root / "backend/scripts/qwen_worker.py")])
+
     def start_ollama(self):
         executable = shutil.which("ollama.exe")
         fallback = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/Ollama/ollama.exe"
@@ -299,7 +326,7 @@ class Launcher:
     def run(self):
         self.system.check_lan()
         self.backend_port()  # Fail on a collision before starting other components.
-        print("[1/4] PostgreSQL: проверка подключения и схемы...", flush=True)
+        print("[1/5] PostgreSQL: проверка подключения и схемы...", flush=True)
         issue = self.system.database()
         if issue:
             from sqlalchemy.engine import make_url
@@ -324,7 +351,7 @@ class Launcher:
                 raise LaunchError("PostgreSQL", issue.reason, issue.action)
         print("PostgreSQL готов: подключение и схема проверены без записи данных.", flush=True)
 
-        print("[2/4] Ollama: проверка API и установленной модели...", flush=True)
+        print("[2/5] Ollama: проверка API и установленной модели...", flush=True)
         models = self.system.tags()
         if models is None:
             port = urlsplit(self.config.ollama_url).port or 11434
@@ -344,7 +371,7 @@ class Launcher:
         print("Ollama готова; выбранная модель доступна.", flush=True)
 
         if self.config.asr_enabled:
-            print("[3/4] GigaAM: постоянный worker, CUDA, модель и VAD...", flush=True)
+            print("[3/5] GigaAM: постоянный worker, CUDA, модель и VAD...", flush=True)
             state = self.system.asr_state()
             if not state["ready"]:
                 if self.check_only:
@@ -357,7 +384,16 @@ class Launcher:
                         "Проверьте ASR_HOME, локальные модели/VAD, CUDA и свободную VRAM. Посмотрите лог ASR; чужие процессы не завершаются.")
             print("GigaAM готов: модель и VAD загружены, очередь доступна.", flush=True)
 
-        print("[4/4] FastAPI: проверка процесса, /health и чтения БД...", flush=True)
+        print("[4/5] Qwen: durable dispatcher...", flush=True)
+        state = self.system.qwen_state()
+        if not state["ready"]:
+            if self.check_only:
+                raise LaunchError("Qwen worker", "Dispatcher не готов.", "Запустите start-dev.ps1 без -CheckOnly.")
+            if not state["alive"]:
+                self.system.start_qwen()
+            if not self.system.wait(lambda: self.system.qwen_state()["ready"], 20):
+                raise LaunchError("Qwen worker", "Dispatcher не стал готов.", "Проверьте миграцию0011 и лог qwen-worker; чужие процессы не останавливаются.")
+        print("[5/5] FastAPI: проверка процесса, /health и чтения БД...", flush=True)
         listeners = self.backend_port()
         if not listeners:
             if self.check_only:
@@ -372,7 +408,7 @@ class Launcher:
         if addresses != expected:
             raise LaunchError("Сеть", "Backend не слушает оба настроенных локальных адреса.",
                 "Проверьте способ запуска backend; ожидается один процесс app.run с --lan-host.")
-        print("\nГОТОВО: PostgreSQL, Ollama, ASR (если включён) и backend проверены.", flush=True)
+        print("\nГОТОВО: PostgreSQL, Ollama, ASR (если включён), Qwen dispatcher и backend проверены.", flush=True)
         for issue in self.config.auth_issues:
             print("Внимание — авторизация: " + issue, flush=True)
         print("ПК: http://127.0.0.1:8000/api/v1 (требуется вход; OpenAPI также защищён)", flush=True)

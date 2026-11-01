@@ -71,21 +71,24 @@ def accept_processing(db, item, body, generator):
     item.processing_title = body.title
     item.processing_folder_ids = body.folder_ids
     from app.services.template_catalog import resolve_template_snapshot
-    item.processing_options = {**body.generation_options(),
-        "template_snapshot": resolve_template_snapshot(db, body.template_id)}
+    snapshot = resolve_template_snapshot(db, body.template_id)
+    if body.expected_template_version is not None and snapshot['version'] != body.expected_template_version:
+        fail(409, "template_version_conflict", "Шаблон изменился. Перечитайте его и подтвердите настройки.")
+    item.processing_options = {**body.generation_options(), "template_snapshot": snapshot}
     item.processing_attempt += 1
     item.error_code = None
 
 
 def commit_and_schedule(db, item, tasks, generator):
     db.flush()
-    id, attempt = item.id, item.processing_attempt
+    from app.services.jobs import enqueue, run_job
+    job = enqueue(db, transcript=item)
     # Text and accepted parameters become durable together, before scheduling.
     db.commit()
     result = processing_response(db, item)
     db.commit()  # Release the response read transaction before the model call.
     factory = sessionmaker(db.get_bind(), expire_on_commit=False)
-    tasks.add_task(run_processing, factory, id, attempt, generator)
+    tasks.add_task(run_job, factory, job.id, generator)
     return result
 
 
@@ -108,6 +111,8 @@ def create_and_process(body: CreateProcessInput, tasks: BackgroundTasks,
     # Preserve fingerprints accepted before optional generation settings existed.
     if options != {"detail_level": "normal", "focus_areas": [], "additional_instructions": ""}:
         parameters["generation_options"] = options
+    if body.expected_template_version is not None:
+        parameters['expected_template_version'] = body.expected_template_version
     canonical = json.dumps(parameters, ensure_ascii=False, sort_keys=True)
     request_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     values = dict(owner_user_id=current_user_id(db), text=body.text, source_hash=source_hash,

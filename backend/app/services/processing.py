@@ -19,6 +19,7 @@ ERROR_MESSAGES = {
     "llm_unavailable": "Модель временно недоступна.",
     "llm_invalid_response": "Модель вернула некорректный результат.",
     "processing_interrupted": "Обработка прервана перезапуском сервера.",
+    "processing_cancelled": "Обработка отменена пользователем.",
     "processing_failed": "Не удалось завершить обработку.",
 }
 
@@ -34,19 +35,41 @@ def processing_response(db, item):
         summary_id=summary_id, error=error)
 
 
-def run_processing(factory, transcript_id: UUID, attempt: int, generator: SummaryGenerator):
+def run_processing(factory, transcript_id: UUID, attempt: int, generator: SummaryGenerator, *, lease=None):
     owner_id = None
     try:
         # Snapshot and close the transaction before any model/network work.
         with factory() as db:
             item = db.get(Transcript, transcript_id)
             if item is None or item.processing_attempt != attempt or item.processing_status != "summarizing":
+                if lease:
+                    raise RuntimeError("target_closed")
                 return
+            if lease and item.owner_user_id != lease.record["owner_user_id"]:
+                raise RuntimeError("target_owner_changed")
             source = item.text
             owner_id = item.owner_user_id
             options = dict(item.processing_options)
-        with gpu_slot(factory, enabled=settings.asr_gpu_serial):
-            content = generator.generate(source, options=options)
+        automatic = False
+        if lease:
+            with factory.begin() as db:
+                db.info["user_id"] = owner_id
+                lock_user_data(db)
+                lease.check(db)
+                from app.services.audio_pipeline import set_source_phase
+                from app.db.audio_models import AudioSession
+                audio = db.scalar(select(AudioSession).where(AudioSession.transcript_id == transcript_id))
+                automatic = bool(audio and audio.pipeline_config)
+                if automatic:
+                    set_source_phase(db, transcript_id, "generating_qwen")
+        with gpu_slot(factory, enabled=settings.asr_gpu_serial, on_wait=lease.progress if lease else None):
+            if lease:
+                lease.progress()
+            if automatic:
+                from app.services.long_generation import generate_long
+                content, _ = generate_long(generator, source, options=options, on_progress=lease.progress)
+            else:
+                content = generator.generate(source, options=options)
         if not isinstance(content, str) or not content.strip():
             raise LLMError("llm_invalid_response")
         with factory.begin() as db:
@@ -54,7 +77,11 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
             lock_user_data(db)
             item = db.scalar(select(Transcript).where(Transcript.id == transcript_id).with_for_update())
             if item is None or item.owner_user_id != owner_id or item.processing_attempt != attempt or item.processing_status != "summarizing":
+                if lease:
+                    raise RuntimeError("target_closed")
                 return
+            if lease:
+                lease.check(db)
             result = Summary(user_id=current_user_id(db), transcript_id=item.id,
                 title=item.processing_title, content=content, template_snapshot=options.get("template_snapshot"),
                 generation_options={k: v for k, v in options.items() if k != "template_snapshot"})
@@ -66,8 +93,14 @@ def run_processing(factory, transcript_id: UUID, attempt: int, generator: Summar
             item.error_code = None
             item.processing_title = None
             item.processing_folder_ids = None
+            if lease:
+                from app.services.audio_pipeline import set_source_phase
+                set_source_phase(db, transcript_id, "completed")
+                lease.done(db)
         logger.info("Processing succeeded transcript=%s attempt=%s", transcript_id, attempt)
     except Exception as exc:
+        if lease:
+            raise
         code = exc.code if isinstance(exc, LLMError) else "processing_failed"
         logger.error("Processing failed transcript=%s attempt=%s code=%s type=%s",
             transcript_id, attempt, code, type(exc).__name__)

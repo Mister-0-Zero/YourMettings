@@ -98,9 +98,11 @@ def create_preview(body: PreviewInput, tasks: BackgroundTasks,
     candidate = SummaryCandidate(selection_id=session.id, options=options, generation_hash=fingerprint(options))
     db.add(candidate)
     db.flush()
+    from app.services.jobs import enqueue, run_job
+    job = enqueue(db, candidate=candidate)
     result = response(candidate, session)
     db.commit()
-    tasks.add_task(run_candidate, sessionmaker(db.get_bind(), expire_on_commit=False), candidate.id, generator)
+    tasks.add_task(run_job, sessionmaker(db.get_bind(), expire_on_commit=False), job.id, generator)
     return result
 
 

@@ -17,6 +17,7 @@ def email_mode_default():
     # Keep this scope separate from a test calling monkeypatch.undo().
     with pytest.MonkeyPatch.context() as mode:
         mode.setattr(settings, "demo_enabled", False)
+        mode.setattr(settings, "qwen_max_deliveries", 1)
         yield
 
 

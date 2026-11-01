@@ -149,11 +149,13 @@ def test_committed_but_unscheduled_processing_recovers_on_restart(client, databa
             pass
     asyncio.run(restart())
     response = client.post(URL, json=body, headers=headers)
-    assert response.json()["status"] == "error"
-    assert response.json()["error"]["code"] == "processing_interrupted"
+    assert response.json()["status"] == "summarizing"
+    assert response.json()["error"] is None
     assert response.json()["transcript_id"] == tid and fake.calls == 0
     assert client.get(f"/api/v1/transcripts/{tid}").json()["text"] == body["text"]
-    client.post(f"/api/v1/transcripts/{tid}/process", json={"title": body["title"], "folder_ids": body["folder_ids"]})
+    from app.services.jobs import claim, execute
+    execute(database, claim(database), fake)
+    assert client.get(f"/api/v1/transcripts/{tid}/processing").json()["status"] == "ready"
     assert fake.calls == 1
 
 

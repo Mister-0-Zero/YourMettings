@@ -1,5 +1,7 @@
 # YourMettings: подключение Flutter к backend
 
+Новый offline/automatic контракт реализован в отдельном clone, ещё не развёрнут: [FLUTTER_OFFLINE_PIPELINE_HANDOFF.md](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md). На USB baseline пока только опубликованные папки.
+
 Доработка размещений от 01.11.2026 (одобрена к публикации; runtime сверять с deployment checkpoint): [FLUTTER_FOLDERS_HANDOFF.md](FLUTTER_FOLDERS_HANDOFF.md).
 
 **Для текущей удалённой демонстрации сначала применить [FLUTTER_DEMO_HANDOFF.md](FLUTTER_DEMO_HANDOFF.md): HTTPS + X-Demo-Key, общий изолированный demo-аккаунт. Почтовый вход временно отключён, LAN listener закрыт.**

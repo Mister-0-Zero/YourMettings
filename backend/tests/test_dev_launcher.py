@@ -54,6 +54,13 @@ class FakeSystem:
         if self.model_failed:
             raise LaunchError("Ollama", "Недостаточно VRAM", "Освободите видеопамять")
 
+    def qwen_state(self):
+        return {"alive": getattr(self, "qwen", self.backend), "ready": getattr(self, "qwen", self.backend)}
+
+    def start_qwen(self):
+        self.actions.append("qwen")
+        self.qwen = True
+
     def start_backend(self):
         self.actions.append("backend")
         self.backend = True
@@ -80,7 +87,7 @@ def config(tmp_path):
 def test_all_stopped_starts_in_order(config):
     system = FakeSystem(running=False)
     Launcher(config, system).run()
-    assert system.actions == [("postgres", "postgresql-x64-18"), "ollama", "load_model", "asr", "backend"]
+    assert system.actions == [("postgres", "postgresql-x64-18"), "ollama", "load_model", "asr", "qwen", "backend"]
 
 
 def test_repeat_start_does_not_duplicate_processes(config):

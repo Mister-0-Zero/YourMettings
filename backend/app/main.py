@@ -15,6 +15,7 @@ from app.api.folders import router as folders_router
 from app.api.transcripts import router as transcripts_router
 from app.api.summaries import router as summaries_router
 from app.api.audio_sessions import router as audio_router
+from app.api.audio_pipeline import router as pipeline_router
 from app.api.templates import router as templates_router
 from app.api.template_previews import router as previews_router
 from app.api.summary_variants import router as variants_router
@@ -58,7 +59,7 @@ app = FastAPI(title="YourMettings", version="0.1.0", lifespan=lifespan,
     docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(RequestBoundary)
 app.include_router(auth_router, prefix="/api/v1")
-for router in (transcripts_router, folders_router, summaries_router, audio_router,
+for router in (transcripts_router, folders_router, summaries_router, audio_router, pipeline_router,
         templates_router, previews_router, variants_router, examples_router):
     app.include_router(router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
 

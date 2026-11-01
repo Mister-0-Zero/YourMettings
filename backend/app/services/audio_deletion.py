@@ -59,24 +59,37 @@ def delete_unconfirmed_session(db, session_id, *, confirm):
         AudioSession.user_id == current_user_id(db)).with_for_update())
     if item is None:
         fail(404, "not_found", "Аудиосессия не найдена.")
-    if item.status != "ready_for_review":
-        fail(409, "audio_session_not_deletable", "Удаление доступно только после ASR и до подтверждения Qwen.")
+    automatic_terminal = bool(item.pipeline_config and item.pipeline_config.get("phase") in
+        ("cancelled", "error", "needs_input", "review_required"))
+    if item.status != "ready_for_review" and not (automatic_terminal and item.pipeline_config["phase"] == "cancelled"):
+        fail(409, "audio_session_not_deletable", "Дождитесь ASR или явно отмените автоматическую встречу.")
     if not db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": upload_lock_key(session_id)}):
         fail(409, "audio_session_busy", "Дождитесь завершения загрузки фрагмента и повторите удаление.")
-    source = db.scalar(select(Transcript).where(Transcript.id == item.transcript_id).with_for_update())
+    source = db.scalar(select(Transcript).where(Transcript.id == item.transcript_id).with_for_update()) if item.transcript_id else None
     chunks = list(db.scalars(select(AudioChunk).where(AudioChunk.session_id == session_id)
         .order_by(AudioChunk.sequence_number).with_for_update()))
-    if (source is None or source.owner_user_id != current_user_id(db) or source.processing_status != "not_started"
-        or source.processing_attempt != 0 or source.first_processed_at is not None
-        or source.idempotency_key is not None or source.request_hash is not None
-        or not item.expected_chunk_count or len(chunks) != item.expected_chunk_count
-        or [c.sequence_number for c in chunks] != list(range(item.expected_chunk_count))
-        or any(c.status != "done" for c in chunks)):
+    if automatic_terminal:
+        valid = (source is None and item.pipeline_config["phase"] == "cancelled") or (
+            source is not None and source.owner_user_id == current_user_id(db)
+            and source.processing_status in ("not_started", "error") and source.first_processed_at is None
+            and source.idempotency_key is None and source.request_hash is None)
+        valid = valid and all(c.status not in ("queued", "transcribing") for c in chunks)
+    else:
+        valid = (source is not None and source.owner_user_id == current_user_id(db) and source.processing_status == "not_started"
+            and source.processing_attempt == 0 and source.first_processed_at is None
+            and source.idempotency_key is None and source.request_hash is None
+            and item.expected_chunk_count and len(chunks) == item.expected_chunk_count
+            and [c.sequence_number for c in chunks] == list(range(item.expected_chunk_count))
+            and all(c.status == "done" for c in chunks))
+    if not valid:
         fail(409, "audio_session_not_deletable", "Сессия или её транскрипт ещё используются обработкой.")
-    if (has_external_references(db, source.id)
-        or has_references(db, "audio_sessions", [session_id], ignored={("audio_chunks", "session_id")})
+    if ((source is not None and has_external_references(db, source.id))
+        or has_references(db, "audio_sessions", [session_id], ignored={("audio_chunks", "session_id"), ("audio_pipeline_requests", "session_id")})
         or has_references(db, "audio_chunks", [c.id for c in chunks])):
         fail(409, "audio_session_in_use", "Сессию, фрагменты или транскрипт используют другие данные.")
+    if source is not None:
+        from app.services.jobs import cancel_target_jobs
+        cancel_target_jobs(db, transcript_id=source.id)
     try:
         cleanup_session_files(session_id)
     except (OSError, RuntimeError):
@@ -85,5 +98,6 @@ def delete_unconfirmed_session(db, session_id, *, confirm):
         idempotency_key=item.idempotency_key, request_hash=item.request_hash))
     db.delete(item)  # PostgreSQL cascades chunks, their payloads and ASR job state.
     db.flush()
-    db.delete(source)
-    db.flush()
+    if source is not None:
+        db.delete(source)
+        db.flush()

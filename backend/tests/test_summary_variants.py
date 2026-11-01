@@ -363,6 +363,9 @@ def test_restart_marks_inflight_error_without_reexecution_and_new_key_retries(cl
     selection, _ = new_selection(client)
     first = candidate(client, selection)
     with database.begin() as db:
+        from app.db.job_models import ProcessingJob
+        from sqlalchemy import delete
+        db.execute(delete(ProcessingJob).where(ProcessingJob.candidate_id == UUID(first["id"])))
         db.get(SummaryCandidate, UUID(first["id"])).status = status
     initialize_database(database)
     polled = client.get(f"/api/v1/summary-candidates/{first['id']}").json()

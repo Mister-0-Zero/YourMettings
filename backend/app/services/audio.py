@@ -34,6 +34,7 @@ def session_response(db, item):
     if worker and (datetime.now(timezone.utc) - worker.heartbeat_at).total_seconds() < 15:
         worker_status = worker.status
     transcript = db.get(Transcript, item.transcript_id) if item.transcript_id else None
+    from app.services.audio_pipeline import public_pipeline
     return {"id": item.id, "status": item.status, "recording_closed": item.expected_chunk_count is not None,
         "expected_chunk_count": item.expected_chunk_count, "received_chunk_count": len(chunks),
         "transcribed_chunk_count": sum(chunk.status == "done" for chunk in chunks),
@@ -42,6 +43,8 @@ def session_response(db, item):
         "transcript_sha256": hashlib.sha256(transcript.text.encode()).hexdigest() if transcript else None,
         "processing": processing_response(db, transcript).model_dump(mode="json") if transcript else None,
         "parameters": item.request_data, "error_code": item.error_code,
+        "pipeline": public_pipeline(
+            item, processing_response(db, transcript).summary_id if transcript else None),
         "boundary_warnings": item.boundary_warnings, "chunks": [chunk_response(c) for c in chunks],
         "worker_status": worker_status, "chunk_target_seconds": settings.audio_chunk_target_seconds,
         "max_chunk_seconds": settings.audio_chunk_max_seconds, "max_upload_bytes": settings.audio_max_upload_bytes,
@@ -91,18 +94,24 @@ def assemble(db, session):
         return
     chunks = db.scalars(select(AudioChunk).where(AudioChunk.session_id == session.id).order_by(AudioChunk.sequence_number)).all()
     if any(c.status == "failed" for c in chunks):
+        from app.services.audio_pipeline import phase
+        phase(session, "error", "chunk_failed")
         session.status, session.error_code = "failed", "chunk_failed"
         return
     session.status, session.error_code = "transcribing", None
+    from app.services.audio_pipeline import phase
+    phase(session, "asr")
     if [c.sequence_number for c in chunks] != list(range(session.expected_chunk_count)) or any(c.status != "done" for c in chunks):
         return
     try:
         text, warnings = merge_texts(chunks)
     except ValueError:
+        phase(session, "error", "timeline_mismatch")
         session.status, session.error_code = "failed", "timeline_mismatch"
         return
     if not text or len(text) > settings.max_transcript_chars:
         session.status, session.error_code = "failed", "empty_transcript" if not text else "transcript_too_large"
+        phase(session, "error", session.error_code)
         return
     transcript = Transcript(owner_user_id=session.user_id, text=text, source_hash=hashlib.sha256(text.encode()).hexdigest())
     db.add(transcript)
@@ -110,6 +119,8 @@ def assemble(db, session):
     session.transcript_id = transcript.id
     session.boundary_warnings = warnings
     session.status, session.error_code = "ready_for_review", None
+    from app.services.audio_pipeline import enqueue_automatic
+    enqueue_automatic(db, session, transcript)
 
 
 def recover_worker(db, generation, pid):
@@ -136,12 +147,20 @@ def claim_chunk(db, generation):
 
 
 def finish_chunk(db, job, generation, *, text=None, segments=None, error=None):
+    owner = db.scalar(select(AudioSession.user_id).where(AudioSession.id == job["session_id"]))
+    if owner is None:
+        return False
+    db.info["user_id"] = owner
+    from app.services.deletion import lock_user_data
+    lock_user_data(db)
     state = db.get(ASRWorkerState, 1)
     session = db.scalar(select(AudioSession).where(AudioSession.id == job["session_id"]).with_for_update())
     chunk = db.scalar(select(AudioChunk).where(AudioChunk.id == job["id"]).with_for_update())
-    if not session or not state or state.generation != generation or not chunk or chunk.claimed_by != generation or chunk.attempt != job["attempt"] or chunk.status != "transcribing":
+    if not session or (session.pipeline_config and session.pipeline_config["phase"] == "cancelled") or not state or state.generation != generation or not chunk or chunk.claimed_by != generation or chunk.attempt != job["attempt"] or chunk.status != "transcribing":
         return False
     if error:
+        from app.services.audio_pipeline import phase
+        phase(session, "error", error)
         chunk.status, chunk.error_code = "failed", error
         if session.expected_chunk_count is not None:
             session.status, session.error_code = "failed", "chunk_failed"

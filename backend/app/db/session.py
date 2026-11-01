@@ -2,7 +2,7 @@ from collections.abc import Iterator
 from functools import lru_cache
 from uuid import UUID
 
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, update, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -43,7 +43,10 @@ def initialize_database(factory):
         seed_system_templates(db)
         from app.services.variants import initialize_variants
         initialize_variants(db)
-        # MVP supports exactly one server process. Its abandoned jobs are retryable.
+        # Only legacy callbacks become interrupted; leased jobs survive server restart.
+        from app.db.job_models import ProcessingJob
         db.execute(update(Transcript).where(
-            Transcript.processing_status == "summarizing"
+            Transcript.processing_status == "summarizing",
+            ~select(ProcessingJob.id).where(ProcessingJob.transcript_id == Transcript.id,
+                ProcessingJob.status.in_(["queued", "running"])).exists()
         ).values(processing_status="error", error_code="processing_interrupted"))
