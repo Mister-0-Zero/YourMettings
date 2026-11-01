@@ -1,5 +1,7 @@
 # Отчёт: USB rollout durable Qwen и automatic
 
+**Последний runtime update:** по отдельному разрешению координатора истёкшая USB-сессия заменена следующей; текущий срок **01.11.2026 19:09:47 МСК**, прежние ключ/аккаунт, schema0011. Подробности в checkpoint в конце. Первоначальные сроки ниже сохранены как история rollout.
+
 **01.11.2026, Москва. BACKEND AUTOMATIC READY для USB приёмки Flutter.** Реализация **faf09db** опубликована в origin/backend и fast-forward установлена в D:/programming/VSCode/project/YourMettings. Код прошёл независимое основное и delta review координатора, после **448 passed** разрешены migration/rollout. [Отчёт реализации](WORK_REPORT_2026-11-01_offline-pipeline.md), [API](API_CONTRACT.md#durable-qwen-и-opt-in-automatic--01112026), [Flutter handoff](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md).
 
 ## Сохранность и миграция
@@ -46,3 +48,16 @@ Flutter следует использовать backend commit **faf09db** ил�
 После указанного USB expiry доступ закончится штатно; этот rollout его не продлевает и не открывает внешний HTTPS. Код/schema уже обновлены, дополнительных миграций для текущей приёмки не требуется. После crash dispatcher его требуется заново запустить штатным разрешённым способом, lease восстановит задания; Windows-служба автоперезапуска не добавлена. Новых модельных загрузок/пакетов/системных настроек нет.
 
 Отчёт и несекретные метрики публикуются отдельным документационным commit; его hash доступен в истории файла. Дополнительный pytest после этого commit не запускался: исполняемый код faf09db не менялся. Markdown/file links, diff и отсутствие secret значений проверены.
+
+
+## Runtime checkpoint: следующая bounded USB-сессия
+
+**01.11.2026, 17:10 МСК.** По отдельному разрешению координатора после окончания предыдущего срока17:07:46 запущен существующий локальный helper `start-summary-usb-session.py --restart-expired`. Новое окно process-only рассчитано на2часа от старта helper: **до01.11.2026 19:09:47.335114 МСК** (16:09:47.335114 UTC). Публичный expiry не продлён.
+
+Перед заменой подтверждены owned API PID35768/команда/время создания по сохранённой записи; непосредственно перед остановкой проверка повторена. Под user locks проверены отсутствие summarizing transcripts, queued/generating candidates, queued/transcribing ASR и queued/running dispatch jobs. Upload advisory locks проверены и удержаны до остановки idle expired API; активных загрузок не было. Локальный helper дополнен только этими safety checks, код репозитория/миграции не менялись. Чужие процессы не завершались.
+
+Новый единственный USB listener **127.0.0.1:8001, PID6784**. Здоровые ASR **PID14152** и Qwen dispatcher **PID10784** переиспользованы; их PID совпали с предыдущим deployment checkpoint. Ollama отвечает, выбранная установленная модель доступна, новых моделей не скачивали. PostgreSQL/schema **0011**, ASR и dispatcher ready.
+
+Read-only smoke: прежним локально прочитанным ключом health/auth-me200, тот же demo-аккаунт; без ключа health/auth-me401. Runtime OpenAPI200 содержит актуальный pipeline API. Порт8000 без listener; .env, внешний HTTPS/ключ/expiry и сети не менялись. Ключи/токены не выводились, повторный ввод пользователем не требуется — мобильный USB vault сохранён.
+
+Полный448-suite и новые synthetic ASR/Qwen генерации не повторялись: код/schema не изменены, проверялась готовность процесса и доступа. Существующий smoke и fixture остаются действительными. Mobile может продолжить приёмку в новом ограниченном окне. Этот документационный commit публикует только runtime update; рабочий код **faf09db**, исходный deployment report **4708232**.

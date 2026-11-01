@@ -8,11 +8,11 @@
 
 ## Отчёты по задачам
 
-- [01.11.2026 — USB rollout automatic/schema0011](WORK_REPORT_2026-11-01_offline-deploy.md): faf09db опубликован, private backup проверен, реальные ASR/Qwen/retry/cancel/restart прошли; USB ready до17:07:46 МСК без продления public доступа.
+- [01.11.2026 — USB rollout automatic/schema0011](WORK_REPORT_2026-11-01_offline-deploy.md): faf09db опубликован, private backup проверен, реальные ASR/Qwen/retry/cancel/restart прошли; USB ready: новая отдельно разрешённая process-only сессия до01.11 19:09:47 МСК; ключ/аккаунт прежние, public доступ не продлён. Первоначальный rollout сохранён в истории отчёта.
 
-- [01.11.2026 — durable Qwen и automatic](WORK_REPORT_2026-11-01_offline-pipeline.md): реализовано в изолированном clone; 448 тестов, schema0011 только в _test; publication/deployment ожидают финального ревью.
+- [01.11.2026 — durable Qwen и automatic](WORK_REPORT_2026-11-01_offline-pipeline.md): review checkpoint реализации:448 тестов; последующий разрешённый rollout/schema0011 выполнен и описан в отчёте выше.
 
-- [01.11.2026 — CAS размещений summary](WORK_REPORT_2026-11-01_folders.md): 415 тестов; API/OpenAPI и Flutter handoff; 1f7f23d опубликован; USB runtime smoke прошёл, BACKEND FOLDERS READY до 01.11 17:07:46 МСК; public доступ не продлён. Следующий offline/automatic этап описан отдельно как draft, не реализован.
+- [01.11.2026 — CAS размещений summary](WORK_REPORT_2026-11-01_folders.md): 415 тестов; API/OpenAPI и Flutter handoff; 1f7f23d опубликован; USB runtime smoke прошёл, BACKEND FOLDERS READY до 01.11 17:07:46 МСК; public доступ не продлён. На момент этого checkpoint следующий этап был draft; последующая реализация/rollout описаны выше.
 
 - [31.10.2026 — deployment checkpoint summary-save](WORK_REPORT_2026-10-31_summary-save-deploy.md): схема0010 и реальный runtime atomic/CAS проверены; USB BACKEND READY на127.0.0.1:8001 с ограниченным process-only сроком, внешний demo не продлён; мобильная приёмка отдельно.
 
