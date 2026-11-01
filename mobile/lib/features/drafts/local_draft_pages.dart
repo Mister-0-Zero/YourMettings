@@ -11,20 +11,23 @@ import '../../models/processing_options.dart';
 import '../../services/drafts/draft_record.dart';
 import '../../services/drafts/draft_repository.dart';
 import '../../services/drafts/draft_workspace.dart';
+import '../../services/drafts/queue_journal.dart';
+import 'queue_processing_page.dart';
 import '../recording/draft_recorder_coordinator.dart';
 import '../recording/audio_wave.dart';
 
-String draftStateLabel(LocalDraftRecord record) =>
-    switch (record.toJson()['state']) {
-      'recording' || 'capturing' => 'Идёт запись',
-      'paused' => 'На паузе',
-      'interrupted' => 'Запись прервана — аудио сохранено',
-      'legacy_bridge' => 'Прежняя встреча — продолжить восстановление',
-      'migration_prepared' ||
-      'migration_pending' => 'Перенос не завершён — исходник сохранён',
-      'ready' => 'Запись сохранена',
-      _ => 'Черновик',
-    };
+String draftStateLabel(LocalDraftRecord record) => switch (record
+    .toJson()['state']) {
+  'recording' || 'capturing' => 'Идёт запись',
+  'paused' => 'На паузе',
+  'interrupted' => 'Запись прервана — аудио сохранено',
+  'legacy_bridge' => 'Прежняя встреча — продолжить восстановление',
+  'migration_prepared' ||
+  'migration_pending' => 'Перенос не завершён — исходник сохранён',
+  'ready' => 'Запись сохранена',
+  'processing' || 'saved_with_changes' => queueStageLabel(draftQueue(record)),
+  _ => 'Черновик',
+};
 
 class LocalDraftsPage extends StatelessWidget {
   const LocalDraftsPage({
@@ -56,6 +59,18 @@ class LocalDraftsPage extends StatelessWidget {
         const SnackBar(
           content: Text(
             'Перенос ещё не завершён. Данные сохранены; повторите запуск приложения.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (item.requests.isNotEmpty || item.toJson()['state'] == 'processing') {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => QueueProcessingPage(
+            workspace: workspace,
+            localId: item.localId,
+            recorder: recorder,
           ),
         ),
       );
@@ -135,6 +150,23 @@ class LocalDraftsPage extends StatelessWidget {
                     'Здесь сохраняются незавершённые встречи и записи.',
                   ),
                 ),
+              for (final completion in workspace.completions.reversed)
+                ListTile(
+                  leading: const Icon(Icons.check_circle_outline),
+                  title: Text(
+                    completion['title'] as String? ?? 'Встреча сохранена',
+                  ),
+                  subtitle: const Text('Сохранено на сервере'),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => QueueProcessingPage(
+                        workspace: workspace,
+                        localId: completion['local_id'] as String,
+                        recorder: recorder,
+                      ),
+                    ),
+                  ),
+                ),
               for (final item in workspace.items)
                 Card(
                   child: ListTile(
@@ -180,7 +212,16 @@ class LocalDraftEditorPage extends StatefulWidget {
     required this.workspace,
     required this.record,
     this.recorder,
+    this.settingsOnly = false,
+    this.saveOverride,
   });
+  final bool settingsOnly;
+  final Future<LocalDraftRecord> Function(
+    LocalDraftRecord,
+    LocalDraftInput,
+    bool,
+  )?
+  saveOverride;
   final DraftWorkspace workspace;
   final LocalDraftRecord record;
   final DraftRecorderCoordinator? recorder;
@@ -204,7 +245,7 @@ class _LocalDraftEditorPageState extends State<LocalDraftEditorPage>
   late bool _review = _record.input.processingMode == 'review',
       _autoStart = _record.autoStart;
   bool _dirty = false, _saving = false, _allowExit = false, _closed = false;
-  bool _transitioning = false;
+  bool _transitioning = false, _boundariesReviewed = false;
   String? _error;
   Timer? _debounce;
   Future<bool>? _saveFuture;
@@ -253,12 +294,15 @@ class _LocalDraftEditorPageState extends State<LocalDraftEditorPage>
     try {
       while (_dirty) {
         final fingerprint = _fingerprint(), input = _input(), auto = _autoStart;
-        final next = await widget.workspace.save(
-          _record.localId,
-          revision: _record.revision,
-          input: input,
-          autoStart: auto,
-        );
+        final next = widget.saveOverride != null
+            ? await widget.saveOverride!(_record, input, auto)
+            : await widget.workspace.save(
+                _record.localId,
+                revision: _record.revision,
+                input: input,
+                autoStart: auto,
+                originalInput: _record.input,
+              );
         _record = next;
         _dirty = _fingerprint() != fingerprint;
         _error = null;
@@ -358,6 +402,34 @@ class _LocalDraftEditorPageState extends State<LocalDraftEditorPage>
     }
   }
 
+  Future<void> _startProcessing() async {
+    if (_transitioning) return;
+    setState(() => _transitioning = true);
+    try {
+      if (!await _save() || !mounted) return;
+      await widget.workspace.queueAction(
+        _record.localId,
+        'start',
+        boundariesReviewed: _boundariesReviewed,
+      );
+      if (mounted) {
+        await Navigator.of(context).pushReplacement<void, void>(
+          MaterialPageRoute(
+            builder: (_) => QueueProcessingPage(
+              workspace: widget.workspace,
+              localId: _record.localId,
+              recorder: widget.recorder,
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _transitioning = false);
+    }
+  }
+
   Future<void> _resumeRecording() async {
     if (_transitioning || widget.recorder == null) return;
     setState(() => _transitioning = true);
@@ -437,6 +509,10 @@ class _LocalDraftEditorPageState extends State<LocalDraftEditorPage>
                 ? null
                 : () async {
                     if (await _save() && context.mounted) {
+                      if (widget.settingsOnly) {
+                        Navigator.pop(context);
+                        return;
+                      }
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Черновик сохранён')),
                       );
@@ -499,7 +575,11 @@ class _LocalDraftEditorPageState extends State<LocalDraftEditorPage>
                       ),
                     ),
                     const SizedBox(height: 16),
-                    if (_record.kind == LocalDraftKind.text) ...[
+                    if (!widget.settingsOnly &&
+                        (_record.kind == LocalDraftKind.text ||
+                            (_record.toJson()['checkpoints']
+                                    as Json)['review_source'] !=
+                                null)) ...[
                       OutlinedButton.icon(
                         onPressed: _import,
                         icon: const Icon(Icons.upload_file),
@@ -526,7 +606,11 @@ class _LocalDraftEditorPageState extends State<LocalDraftEditorPage>
                       Text(
                         'Аудиозапись сохранена на этом устройстве. ${(((_record.toJson()['checkpoints'] as Json)['capture'] as Json?)?['byte_count'] as int? ?? 0) ~/ 32000} сек.',
                       ),
-                      if (_record.toJson()['state'] == 'interrupted' &&
+                      if (!widget.settingsOnly &&
+                          [
+                            'draft',
+                            'interrupted',
+                          ].contains(_record.toJson()['state']) &&
                           widget.recorder != null &&
                           _record.requests.isEmpty)
                         OutlinedButton.icon(
@@ -730,7 +814,45 @@ class _LocalDraftEditorPageState extends State<LocalDraftEditorPage>
                       },
                     ),
                     const SizedBox(height: 12),
-                    if (_record.requests.isEmpty && _record.serverIds.isEmpty)
+                    if (!widget.settingsOnly &&
+                        (_record.toJson()['checkpoints']
+                                as Json)['review_source'] !=
+                            null &&
+                        (((_record.toJson()['checkpoints']
+                                            as Json)['review_source']
+                                        as Json)['boundary_warnings']
+                                    as List? ??
+                                [])
+                            .isNotEmpty)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Я прочитал текст и проверил стыки фрагментов',
+                        ),
+                        value: _boundariesReviewed,
+                        onChanged: (value) =>
+                            setState(() => _boundariesReviewed = value == true),
+                      ),
+                    if (!widget.settingsOnly &&
+                            _record.toJson()['state'] != 'draft' ||
+                        !widget.settingsOnly &&
+                            _record.kind == LocalDraftKind.text)
+                      FilledButton.icon(
+                        onPressed: _saving || _transitioning
+                            ? null
+                            : _startProcessing,
+                        icon: const Icon(Icons.auto_awesome),
+                        label: Text(
+                          (_record.toJson()['checkpoints']
+                                      as Json)['review_source'] !=
+                                  null
+                              ? 'Подтвердить текст и обработать'
+                              : 'Начать обработку',
+                        ),
+                      ),
+                    if (!widget.settingsOnly &&
+                        _record.requests.isEmpty &&
+                        _record.serverIds.isEmpty)
                       TextButton.icon(
                         onPressed: _saving ? null : _delete,
                         icon: const Icon(Icons.delete_outline),
@@ -780,21 +902,63 @@ class _LocalRecorderPageState extends State<LocalRecorderPage> {
     }
   }
 
+  Future<void> _settings() async {
+    if (_working) return;
+    setState(() => _working = true);
+    try {
+      LocalDraftRecord record;
+      if (_id == null) {
+        record = await widget.workspace.create(
+          LocalDraftKind.audio,
+          input: LocalDraftInput(
+            title:
+                'Совещание ${DateTime.now().toLocal().toString().substring(0, 16)}',
+          ),
+        );
+        _id = record.localId;
+      } else {
+        record = await widget.workspace.reader.read(_id!);
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => LocalDraftEditorPage(
+            workspace: widget.workspace,
+            record: record,
+            recorder: widget.recorder,
+            settingsOnly: true,
+            saveOverride: widget.recorder.recording
+                ? widget.recorder.saveSettings
+                : null,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   Future<void> _finish() async {
     setState(() => _working = true);
     final ok = await widget.recorder.command('stop');
     if (!mounted) return;
     setState(() => _working = false);
     if (!ok || _id == null) return;
-    final record = await widget.workspace.reader.read(_id!);
+    final stopped = await widget.workspace.reader.read(_id!);
     if (mounted) {
       await Navigator.of(context).pushReplacement<void, void>(
         MaterialPageRoute(
-          builder: (_) => LocalDraftEditorPage(
-            workspace: widget.workspace,
-            record: record,
-            recorder: widget.recorder,
-          ),
+          builder: (_) => stopped.toJson()['state'] == 'interrupted'
+              ? LocalDraftEditorPage(
+                  workspace: widget.workspace,
+                  record: stopped,
+                  recorder: widget.recorder,
+                )
+              : QueueProcessingPage(
+                  workspace: widget.workspace,
+                  localId: _id!,
+                  recorder: widget.recorder,
+                ),
         ),
       );
     }
@@ -842,6 +1006,11 @@ class _LocalRecorderPageState extends State<LocalRecorderPage> {
                 samples: widget.recorder.meter,
                 active: phase == 'recording',
                 onVisibilityChanged: widget.recorder.setMeterVisible,
+              ),
+              OutlinedButton.icon(
+                onPressed: _working ? null : _settings,
+                icon: const Icon(Icons.tune),
+                label: const Text('Папки и настройки обработки'),
               ),
               if (active) ...[
                 OutlinedButton.icon(

@@ -10,6 +10,7 @@ import '../../features/recording/audio_meter.dart';
 import '../../models/api_models.dart';
 import 'draft_record.dart';
 import 'draft_repository.dart';
+import 'queue_journal.dart';
 
 /// Local storage profile, independent of server limits/capability cache.
 /// Source is append-only PCM16 little endian, mono, 16 kHz. Remote WAVs are
@@ -194,6 +195,33 @@ class LocalAudioCapture {
         })
         .whenComplete(() => _buffered -= stable.length);
   }
+
+  Future<void> saveSettings(
+    LocalDraftInput input,
+    bool autoStart,
+    String originalFingerprint,
+  ) => _command(() async {
+    final current = await repository.read(localId);
+    if (draftInputFingerprint(current.input) != originalFingerprint) {
+      throw const DraftRevisionConflict();
+    }
+    await repository.update(
+      localId,
+      expectedRevision: current.revision,
+      change: (j) {
+        j['input'] = input.toJson();
+        j['auto_start_when_online'] = autoStart;
+      },
+    );
+  });
+  Future<void> finishIntent() => _command(() async {
+    final current = await repository.read(localId);
+    if (current.toJson()['state'] != 'ready') return;
+    await QueueJournal(
+      repository,
+      localId,
+    ).status('ready', fields: {'online_finish_pending': true});
+  });
 
   Future<void> pause() => _command(() async {
     if (_phase != 'recording') return;

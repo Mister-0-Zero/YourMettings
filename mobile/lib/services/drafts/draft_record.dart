@@ -53,13 +53,22 @@ class FrozenDraftRequest {
     required this.path,
     required this.key,
     required Json body,
-  }) : encodedBody = jsonEncode(body) {
+    Map<String, String> query = const {},
+  }) : query = Map.unmodifiable(query),
+       encodedBody = jsonEncode(body) {
     _validate();
   }
-  FrozenDraftRequest._(this.method, this.path, this.key, this.encodedBody) {
+  FrozenDraftRequest._(
+    this.method,
+    this.path,
+    this.key,
+    this.encodedBody, {
+    Map<String, String> query = const {},
+  }) : query = Map.unmodifiable(query) {
     _validate();
   }
   final String method, path, key, encodedBody;
+  final Map<String, String> query;
   Json get body => jsonDecode(encodedBody) as Json;
   void _validate() {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].contains(method) ||
@@ -82,12 +91,16 @@ class FrozenDraftRequest {
     'path': path,
     'key': key,
     'encoded_body': encodedBody,
+    if (query.isNotEmpty) 'query': query,
   };
   factory FrozenDraftRequest.fromJson(Json j) => FrozenDraftRequest._(
     j['method'] as String,
     j['path'] as String,
     j['key'] as String,
     j['encoded_body'] as String,
+    query: ((j['query'] as Json?) ?? {}).map(
+      (k, v) => MapEntry(k, v as String),
+    ),
   );
 }
 

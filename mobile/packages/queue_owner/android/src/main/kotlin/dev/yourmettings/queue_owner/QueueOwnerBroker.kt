@@ -10,7 +10,7 @@ import java.util.UUID
 /** Shared registry across Flutter engines, plus advisory kernel lock across processes. */
 internal object QueueOwnerBroker {
     private data class Held(val engine: String, val token: String,
-                            val file: RandomAccessFile, val lock: FileLock)
+                            val file: RandomAccessFile, val lock: FileLock, var yieldRequested: Boolean = false)
     private val held = mutableMapOf<String, Held>()
 
     private fun lockFile(root: File, scope: String): File {
@@ -48,6 +48,18 @@ internal object QueueOwnerBroker {
     fun valid(root: File, scope: String, engine: String, token: String): Boolean {
         val entry = held[lockFile(root, scope).canonicalPath] ?: return false
         return entry.engine == engine && entry.token == token && entry.lock.isValid
+    }
+
+    @Synchronized
+    fun requestYield(root: File, scope: String): Boolean {
+        val entry = held[lockFile(root, scope).canonicalPath] ?: return false
+        entry.yieldRequested = true
+        return true
+    }
+    @Synchronized
+    fun shouldYield(root: File, scope: String, engine: String, token: String): Boolean {
+        if (!valid(root, scope, engine, token)) return true
+        return held[lockFile(root, scope).canonicalPath]?.yieldRequested ?: true
     }
 
     @Synchronized

@@ -19,6 +19,7 @@ abstract interface class QueueAudioAuthority implements QueueWriteAuthority {
 }
 
 abstract interface class QueueOwnerLease implements QueueAudioAuthority {
+  Future<bool> shouldYield();
   Future<int> availableBytes();
   Future<void> saveCaptureTicket(String localId, String nonce);
   Future<void> clearCaptureTicket(String nonce);
@@ -43,6 +44,10 @@ class NativeQueueOwner {
   static const channel = MethodChannel('yourmettings/queue_owner');
   static Future<Map<String, String>?> captureTicket() =>
       channel.invokeMapMethod<String, String>('captureTicket');
+
+  static Future<void> requestYield(String scopeId) async {
+    await channel.invokeMethod<bool>('requestYield', {'scope': scopeId});
+  }
 
   static Future<NativeQueueLease?> acquire(String scopeId) async {
     if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(scopeId)) {
@@ -126,6 +131,13 @@ class NativeQueueLease implements QueueOwnerLease {
   Future<void> clearCaptureTicket(String nonce) =>
       _nativeMutation('captureTicketClear', {'nonce': nonce});
 
+  @override
+  Future<bool> shouldYield() async =>
+      await NativeQueueOwner.channel.invokeMethod<bool>(
+        'shouldYield',
+        _arguments,
+      ) ??
+      true;
   @override
   Future<int> availableBytes() async => (await NativeQueueOwner.channel
       .invokeMethod<int>('availableBytes', _arguments))!;

@@ -14,6 +14,7 @@ import 'draft_access.dart';
 import 'draft_record.dart';
 import 'draft_repository.dart';
 import 'legacy_draft_handoff.dart';
+import 'queue_journal.dart';
 
 class DraftWorkspace extends ChangeNotifier {
   DraftWorkspace({
@@ -21,12 +22,19 @@ class DraftWorkspace extends ChangeNotifier {
     required this.connection,
     required this.api,
     AcquireDraftOwner? acquireOwner,
-  }) : acquireOwner = acquireOwner ?? NativeQueueOwner.acquire;
+    Future<void> Function(String)? yieldOwner,
+    this.acquireTimeout = const Duration(seconds: 3),
+  }) : acquireOwner = acquireOwner ?? NativeQueueOwner.acquire,
+       yieldOwner = yieldOwner ?? NativeQueueOwner.requestYield;
   final Directory directory;
   final DemoConnection connection;
   final ApiClient api;
   final AcquireDraftOwner acquireOwner;
+  final Future<void> Function(String) yieldOwner;
+  final Duration acquireTimeout;
   bool _closed = false, refreshing = false;
+  Future<void> Function()? wakeQueue;
+  List<Json> completions = [];
   Future<void> _mutations = Future.value();
   List<LocalDraftRecord> items = [];
   List<DraftLoadIssue> issues = [];
@@ -52,7 +60,15 @@ class DraftWorkspace extends ChangeNotifier {
   ) {
     if (_closed) return Future.error(StateError('Workspace closed'));
     final task = _mutations.then((_) async {
-      final lease = await acquireOwner(connection.scopeId);
+      var lease = await acquireOwner(connection.scopeId);
+      if (lease == null) {
+        await yieldOwner(connection.scopeId);
+        final until = DateTime.now().add(acquireTimeout);
+        while (lease == null && DateTime.now().isBefore(until)) {
+          await Future<void>.delayed(const Duration(milliseconds: 40));
+          lease = await acquireOwner(connection.scopeId);
+        }
+      }
       if (lease == null) throw const QueueOwnerLost();
       try {
         return await action(
@@ -134,6 +150,14 @@ class DraftWorkspace extends ChangeNotifier {
       final listing = await reader.list();
       if (_closed) return;
       items = listing.items;
+      final completed = File('${directory.path}/queue-completions.json');
+      completions =
+          await completed.exists() &&
+              !await FileSystemEntity.isLink(completed.path)
+          ? ((jsonDecode(await completed.readAsString()) as Json)['items']
+                    as List)
+                .cast<Json>()
+          : [];
       issues = listing.issues;
     } catch (_) {
       localError = 'Не удалось прочитать черновики. Файлы не удалены.';
@@ -163,6 +187,7 @@ class DraftWorkspace extends ChangeNotifier {
     required int revision,
     required LocalDraftInput input,
     required bool autoStart,
+    LocalDraftInput? originalInput,
   }) async {
     final result = await withOwner((repo, _) async {
       final current = await repo.read(id);
@@ -178,7 +203,13 @@ class DraftWorkspace extends ChangeNotifier {
       }
       return repo.update(
         id,
-        expectedRevision: revision,
+        expectedRevision:
+            current.revision == revision ||
+                originalInput != null &&
+                    draftInputFingerprint(current.input) ==
+                        draftInputFingerprint(originalInput)
+            ? current.revision
+            : revision,
         change: (json) {
           json['input'] = input.toJson();
           json['auto_start_when_online'] = autoStart;
@@ -186,6 +217,7 @@ class DraftWorkspace extends ChangeNotifier {
       );
     });
     await reload();
+    unawaited(wakeQueue?.call());
     return result;
   }
 
@@ -205,6 +237,145 @@ class DraftWorkspace extends ChangeNotifier {
       ),
     );
     await reload();
+  }
+
+  Future<void> queueAction(
+    String id,
+    String action, {
+    bool boundariesReviewed = false,
+    bool repair = false,
+  }) async {
+    await withOwner((repo, _) async {
+      final journal = QueueJournal(repo, id);
+      final record = await journal.read();
+      if ([
+        'legacy_bridge',
+        'migration_pending',
+        'migration_prepared',
+        'recording',
+        'paused',
+        'capturing',
+      ].contains(record.toJson()['state'])) {
+        throw StateError('Another flow owns source');
+      }
+      final q = draftQueue(record);
+      final fields = <String, dynamic>{
+        'next_attempt_at': null,
+        'attempt': 0,
+        'error_code': null,
+      };
+      switch (action) {
+        case 'start':
+        case 'retry':
+        case 'reconcile':
+          if (record.input.title.trim().isEmpty ||
+              (record.kind == LocalDraftKind.text ||
+                      record.input.processingMode == 'automatic' ||
+                      q['stage'] == 'review_required') &&
+                  record.input.folderIds.isEmpty) {
+            throw const FormatException(
+              'Укажите название и хотя бы одну папку.',
+            );
+          }
+          fields.addAll({'requested': true, 'paused': false, 'command': null});
+          if (action == 'reconcile') fields['keep_accepted_parameters'] = true;
+          if (record.serverIds.isEmpty && action != 'reconcile') {
+            final slot = record.kind == LocalDraftKind.audio
+                ? audioCreateSlot(record)
+                : textCreateSlot(record);
+            if ((record.toJson()['receipts'] as Json)[slot] is Json &&
+                ((record.toJson()['receipts'] as Json)[slot]
+                        as Json)['_rejected'] ==
+                    true) {
+              fields[record.kind == LocalDraftKind.audio
+                      ? 'audio_create_slot'
+                      : 'text_create_slot'] =
+                  '${record.kind.name}-create:${newSectionId()}';
+            }
+          }
+
+          if ((record.toJson()['checkpoints'] as Json)['review_source'] !=
+                  null &&
+              action != 'reconcile') {
+            fields.addAll({
+              'review_confirmed': true,
+              'boundaries_reviewed': boundariesReviewed,
+              'review_attempt': newSectionId(),
+            });
+          }
+          if (action == 'retry' &&
+              record.serverIds['transcript_id'] != null &&
+              q['stage'] == 'needs_action') {
+            fields.addAll({
+              'retry_kind': record.kind == LocalDraftKind.text
+                  ? 'text'
+                  : audioCreate(record)?.body['processing_mode'] == 'automatic'
+                  ? 'pipeline'
+                  : 'asr',
+              'retry_attempt': newSectionId(),
+              'repair_parameters': repair,
+            });
+          } else if (action == 'retry' &&
+              record.kind == LocalDraftKind.audio &&
+              record.serverIds['audio_session_id'] != null &&
+              q['stage'] == 'needs_action' &&
+              q['error_code'] != 'pipeline_parameters_locked') {
+            fields.addAll({
+              'retry_kind': 'asr',
+              'retry_attempt': newSectionId(),
+            });
+          }
+        case 'pause':
+          fields['paused'] = true;
+        case 'cancel':
+        case 'delete':
+          fields.addAll({'paused': true, 'command': action});
+        default:
+          throw ArgumentError('Unknown queue action');
+      }
+      // Preserve interrupted audio: resume/finish is explicit, never open mic.
+      await journal.status(
+        'queued',
+        fields: fields,
+        state:
+            record.kind == LocalDraftKind.audio &&
+                record.toJson()['state'] == 'interrupted'
+            ? 'ready'
+            : null,
+      );
+    });
+    await reload();
+    unawaited(wakeQueue?.call());
+  }
+
+  Future<void> pauseQueueScope(bool paused) async {
+    await withOwner(
+      (_, lease) => lease.serialized(
+        () => lease.writeSnapshot(
+          File('${directory.path}/queue-control.json'),
+          jsonEncode({'schema': 1, 'paused': paused}),
+        ),
+      ),
+    );
+  }
+
+  Future<void> accessRestored() async {
+    await withOwner((repo, _) async {
+      for (final record in (await repo.list()).items) {
+        if (draftQueue(record)['stage'] == 'auth_blocked') {
+          await QueueJournal(repo, record.localId).status(
+            'queued',
+            fields: {'next_attempt_at': null, 'attempt': 0, 'error_code': null},
+          );
+        }
+      }
+    });
+    unawaited(wakeQueue?.call());
+  }
+
+  void reportQueueSchedulingError() {
+    localError = 'Фоновое продолжение пока недоступно. Данные сохранены; откройте приложение для продолжения.';
+    _notify();
   }
 
   /// Failure never clears selected IDs or the last-good catalog. Verify identity

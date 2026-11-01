@@ -16,9 +16,13 @@ class SelectionController extends ChangeNotifier {
     required this.source,
     required this.initialOptions,
     this.original,
+    this.autoPoll = true,
+    this.onFailure,
   });
   final ApiClient api;
   final OperationStore store;
+  final bool autoPoll;
+  final FutureOr<void> Function(Object)? onFailure;
   final String slot;
   final Future<Json> Function() source;
   final ProcessingOptions initialOptions;
@@ -30,6 +34,11 @@ class SelectionController extends ChangeNotifier {
   String? error;
   bool busy = false, disposed = false, paused = false, terminal = false;
   Timer? _timer;
+  Future<void>? _active;
+  Future<void> drain() async {
+    await _active;
+  }
+
   bool _retryNetwork = false;
   bool _baselineConflict = false;
   bool _pollAllowed = true;
@@ -504,7 +513,12 @@ class SelectionController extends ChangeNotifier {
     await store.remove(slot);
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<void> _run(Future<void> Function() action) {
+    if (busy || disposed) return Future.value();
+    return _active = _doRun(action).whenComplete(() => _active = null);
+  }
+
+  Future<void> _doRun(Future<void> Function() action) async {
     if (busy || disposed) return;
     _timer?.cancel();
     busy = true;
@@ -517,6 +531,7 @@ class SelectionController extends ChangeNotifier {
       _failures = 0;
       _pollDelay = const Duration(seconds: 2);
     } catch (e) {
+      await onFailure?.call(e);
       error = e.toString();
       _retryNetwork = e is ApiException && e.retryable;
       _pollAllowed = _retryNetwork;
@@ -552,7 +567,8 @@ class SelectionController extends ChangeNotifier {
     } finally {
       busy = false;
       _notify();
-      if (!disposed &&
+      if (autoPoll &&
+          !disposed &&
           _pollAllowed &&
           !paused &&
           accepted == null &&

@@ -2,7 +2,7 @@
 
 Рабочая ветка — `mobile`. Основной отчёт от начала этапа шаблонов до 31 октября 2026: [сводка выполненных работ](MOBILE_PROGRESS_REPORT_2026-10-31.md).
 
-Дата в таблице — дата выполнения соответствующего этапа; число тестов — весь набор на этом этапе, не количество новых тестов. Проверка на телефоне указывается отдельно от сборки и автоматических проверок. Текущий этап: **01.11.2026, checkpoint A** — production UI локальных черновиков и foreground-запись подключены,343 Flutter/11 native тестов, isolated HONOR проверен и очищен. На основном пакете телефона остаётся **0.1.5+6**, source0.1.6+7 не установлен. Следующий B — dispatcher/pipeline/WorkManager/automatic. [Отчёт A](MOBILE_OFFLINE_UI_FGS_2026-11-01.md), [план](MOBILE_OFFLINE_QUEUE_PLAN_2026-11-01.md).
+Дата в таблице — дата выполнения соответствующего этапа; число тестов — весь набор на этом этапе, не количество новых тестов. Проверка на телефоне указывается отдельно от сборки и автоматических проверок. Текущий этап: **01.11.2026, промежуточный B** — production queue/processing/WorkManager/UI wiring,367 Flutter/12 native tests и analyze прошли; реальная backend/основная HONOR приёмка ещё впереди. На основном пакете телефона остаётся **0.1.5+6**. [Отчёт B](MOBILE_OFFLINE_PIPELINE_2026-11-01.md), [отчёт A](MOBILE_OFFLINE_UI_FGS_2026-11-01.md), [план](MOBILE_OFFLINE_QUEUE_PLAN_2026-11-01.md).
 
 | Дата | Этап | Автоматические тесты | Проверка HONOR 400 | Подробный отчёт |
 |---|---|---:|---|---|
@@ -20,6 +20,8 @@
 | 01.11.2026 | Добавление и перемещение по папкам, folder CAS и защита content baseline/выбора шаблона | 288 + целевые 18 после финального уточнения | Выполнена: A+C → A+B+C → B+C, общая правка/цвет, исходные файлы сохранены | [Отчёт](MOBILE_FOLDERS_2026-11-01.md) |
 | 01.11.2026 | Offline-основа: независимые manifests/cache/staging, local PCM и frozen WAV plan, native single owner | 315 полный, после фикса 16 целевых + 9 JVM; analyze/APK успешны | Отдельный headless/ownership/publish probe; основной APK не заменён | [Checkpoint основы](MOBILE_OFFLINE_FOUNDATION_2026-11-01.md) |
 | 01.11.2026 | A: cold local UI, независимые draft settings, foreground mic, legacy handoff, NativeInterop restore fix | 343 Flutter + 11 native; analyze/APK успешны | Isolated:2audio+2text, pause/resume/Home, restart/FGS recreation; probe удалён,10JSON основной1.5 неизменны | [Отчёт A](MOBILE_OFFLINE_UI_FGS_2026-11-01.md) |
+
+| 01.11.2026 | B checkpoint: frozen queue, automatic/review, preemptible owner, WorkManager/scoped UI |367 Flutter +12 JVM; analyze чистый | Основная APK не заменена; B integration pending | [Отчёт B](MOBILE_OFFLINE_PIPELINE_2026-11-01.md) |
 
 ## Более ранние этапы
 

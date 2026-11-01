@@ -46,6 +46,11 @@ class QueueOwnerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     }
                     result.success(null)
                 }
+                "requestYield" -> result.success(QueueOwnerBroker.requestYield(root, scope))
+                "shouldYield" -> {
+                    val token = call.argument<String>("token") ?: error("Missing token")
+                    result.success(QueueOwnerBroker.shouldYield(root, scope, engine, token))
+                }
                 "captureTicketWrite", "captureTicketClear" -> {
                     val token = call.argument<String>("token") ?: error("Missing token")
                     val nonce = call.argument<String>("nonce") ?: error("Missing nonce")

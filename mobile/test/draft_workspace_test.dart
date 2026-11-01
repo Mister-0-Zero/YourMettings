@@ -253,6 +253,8 @@ void main() {
         connection: fixture.connection,
         api: fixture.api,
         acquireOwner: fixture.pool.acquire,
+        yieldOwner: fixture.pool.requestYield,
+        acquireTimeout: const Duration(milliseconds: 50),
       );
       addTearDown(cold.dispose);
       await cold.initialize(legacyTextOwnerStopped: true);

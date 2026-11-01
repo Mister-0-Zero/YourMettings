@@ -37,11 +37,24 @@ class AudioWireLimits {
 /// Called only after capture stops. A committed wire plan is never resegmented:
 /// the first upload may have reached the server even when its ACK was lost.
 class AudioWirePlanner {
-  AudioWirePlanner(this.repository, this.authority) {
+  AudioWirePlanner(this.repository, this.authority, {this.checkpoint}) {
     if (repository.authority != authority) throw ArgumentError('Wire owner');
   }
   final LocalDraftRepository repository;
   final QueueAudioAuthority authority;
+  final Future<void> Function()? checkpoint;
+  Future<void> _check() async {
+    await checkpoint?.call();
+  }
+
+  Future<String> _hash(File file) async {
+    final stream = file.openRead().asyncMap((bytes) async {
+      await _check();
+      return bytes;
+    });
+    return (await sha256.bind(stream).first).toString();
+  }
+
   static const bytesPerSecond = 32000;
   File file(String id, int sequence, {required String planId}) {
     if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(planId)) {
@@ -53,6 +66,7 @@ class AudioWirePlanner {
   }
 
   Future<Json> prepare(String id, AudioWireLimits limits) async {
+    await _check();
     var record = await repository.read(id);
     final existing =
         (record.toJson()['checkpoints'] as Json)['wire_plan'] as Json?;
@@ -76,7 +90,7 @@ class AudioWirePlanner {
     if (length < 32 || length.isOdd) {
       throw const FormatException('Empty/incomplete PCM');
     }
-    final sourceSha = (await sha256.bind(source.openRead()).first).toString();
+    final sourceSha = await _hash(source);
     final planId = sha256
         .convert(
           utf8.encode(
@@ -105,6 +119,7 @@ class AudioWirePlanner {
     final input = await source.open();
     try {
       for (var i = 0; i < spans.length; i++) {
+        await _check();
         final (start, end) = spans[i];
         final size = end - start;
         final bytes = Uint8List(44 + size);
@@ -112,6 +127,7 @@ class AudioWirePlanner {
         await input.setPosition(start);
         var read = 0;
         while (read < size) {
+          await _check();
           final part = await input.readInto(bytes, 44 + read);
           if (part == 0) {
             throw const FileSystemException('PCM source shortened');
@@ -124,8 +140,7 @@ class AudioWirePlanner {
           // A crash before plan commit can leave complete immutable files.
           // Reuse only byte-identical files; never overwrite a published WAV.
           if (await targetFile.length() != bytes.length ||
-              (await sha256.bind(targetFile.openRead()).first).toString() !=
-                  hash) {
+              await _hash(targetFile) != hash) {
             throw const FormatException('Existing immutable wire bytes differ');
           }
         } else {
@@ -148,8 +163,7 @@ class AudioWirePlanner {
     } finally {
       await input.close();
     }
-    if (await source.length() != length ||
-        (await sha256.bind(source.openRead()).first).toString() != sourceSha) {
+    if (await source.length() != length || await _hash(source) != sourceSha) {
       throw StateError('Source changed during planning');
     }
     final plan = <String, dynamic>{
@@ -197,6 +211,7 @@ class AudioWirePlanner {
     var start = 0, position = 0, silence = 0;
     try {
       while (position < length) {
+        await _check();
         final block = await input.read(math.min(65536, length - position));
         if (block.isEmpty || block.length.isOdd) {
           throw const FormatException('PCM source truncated');
@@ -247,6 +262,7 @@ class AudioWirePlanner {
     }
     var expected = 0, end = 0;
     for (final entry in (plan['chunks'] as List).cast<Json>()) {
+      await _check();
       final chunk = file(
         id,
         entry['sequence'] as int,
@@ -255,8 +271,7 @@ class AudioWirePlanner {
       if (entry['sequence'] != expected++ ||
           entry['source_start'] != end ||
           await chunk.length() != entry['byte_count'] ||
-          (await sha256.bind(chunk.openRead()).first).toString() !=
-              entry['sha256']) {
+          await _hash(chunk) != entry['sha256']) {
         throw const FormatException(
           'Frozen audio bytes changed; source preserved',
         );

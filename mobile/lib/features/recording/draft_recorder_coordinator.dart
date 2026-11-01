@@ -16,6 +16,8 @@ import '../../services/drafts/draft_record.dart';
 import '../../services/drafts/draft_repository.dart';
 import '../../services/drafts/draft_workspace.dart';
 import '../../services/drafts/local_audio_capture.dart';
+import '../../services/drafts/queue_journal.dart';
+import '../../services/drafts/queue_scheduler.dart';
 import 'audio_meter.dart';
 import 'microphone_capture.dart';
 
@@ -182,8 +184,15 @@ class _LocalAudioTask extends TaskHandler {
           await _capture?.resume();
         case 'meter':
           _meterEnabled = data['enabled'] == true;
+        case 'settings':
+          await _capture?.saveSettings(
+            LocalDraftInput.fromJson(data['input'] as Json),
+            data['auto_start'] == true,
+            data['original_fingerprint'] as String,
+          );
         case 'stop':
           await _capture?.stop();
+          await _capture?.finishIntent();
           await _release(interrupted: false);
           _finished = true;
         default:
@@ -207,7 +216,14 @@ class _LocalAudioTask extends TaskHandler {
       'command_reply': data['request'],
       'ok': ok,
     });
-    if (_finished) unawaited(FlutterForegroundTask.stopService());
+    if (_finished) {
+      try {
+        await scheduleDraftQueue(_scope!);
+      } catch (_) {
+        /* Foreground/resume retries scheduling. */
+      }
+      unawaited(FlutterForegroundTask.stopService());
+    }
   }
 
   Future<void> _release({required bool interrupted}) async {
@@ -500,7 +516,7 @@ class DraftRecorderCoordinator extends ChangeNotifier {
     }
   }
 
-  Future<bool> command(String command, {bool? enabled}) async {
+  Future<bool> command(String command, {bool? enabled, Json? payload}) async {
     if (_closed || state['service_instance'] == null) return false;
     final id = ++_request, reply = Completer<bool>();
     _replies[id] = reply;
@@ -512,6 +528,7 @@ class DraftRecorderCoordinator extends ChangeNotifier {
       'command': command,
       'request': id,
       'enabled': ?enabled,
+      ...?payload,
     });
     try {
       final ok = await reply.future.timeout(const Duration(seconds: 15));
@@ -519,7 +536,10 @@ class DraftRecorderCoordinator extends ChangeNotifier {
         error =
             'Действие не завершено. Сохранённое аудио осталось на устройстве.';
       }
-      if (command == 'stop') await workspace.reload();
+      if (command == 'stop') {
+        await workspace.reload();
+        unawaited(workspace.wakeQueue?.call());
+      }
       _notify();
       return ok;
     } catch (_) {
@@ -529,6 +549,26 @@ class DraftRecorderCoordinator extends ChangeNotifier {
     } finally {
       _replies.remove(id);
     }
+  }
+
+  Future<LocalDraftRecord> saveSettings(
+    LocalDraftRecord original,
+    LocalDraftInput input,
+    bool autoStart,
+  ) async {
+    if (original.localId != localId || !recording) {
+      throw StateError('Capture differs');
+    }
+    final ok = await command(
+      'settings',
+      payload: {
+        'input': input.toJson(),
+        'auto_start': autoStart,
+        'original_fingerprint': draftInputFingerprint(original.input),
+      },
+    );
+    if (!ok) throw const QueueStorageFailure();
+    return workspace.reader.read(original.localId);
   }
 
   Future<void> close() => _closing ??= _close();

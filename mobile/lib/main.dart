@@ -1,4 +1,5 @@
 import 'services/recorder_context.dart';
+import 'services/drafts/queue_scheduler.dart';
 import 'services/drafts/draft_workspace.dart';
 import 'features/recording/draft_recorder_coordinator.dart';
 
@@ -24,8 +25,13 @@ import 'services/operation_store.dart';
 import 'services/connection_settings.dart';
 import 'services/demo_key_vault.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await initializeDraftQueue();
+  } catch (_) {
+    /* Local launch remains available if scheduler fails. */
+  }
   runApp(const _Bootstrap());
 }
 
@@ -45,6 +51,7 @@ class _BootstrapState extends State<_Bootstrap> {
   AudioReviewController? _review;
   AudioDraftRepository? _drafts;
   DraftWorkspace? _localDrafts;
+  DraftQueueCoordinator? _queue;
   DraftRecorderCoordinator? _localRecorder;
   bool _switching = false;
   String? _graphError;
@@ -78,10 +85,13 @@ class _BootstrapState extends State<_Bootstrap> {
       if (_controller?.working == true || _review?.working == true) {
         return 'Дождитесь завершения текущего запроса и повторите переключение. Данные не перенесены.';
       }
+      await _localDrafts?.pauseQueueScope(true);
       return null;
     };
     settings.onApply = (next, same) async {
       if (same && _controller != null && _graphError == null) {
+        await _localDrafts?.pauseQueueScope(false);
+        await _localDrafts?.accessRestored();
         await _localRecorder?.foreground();
         unawaited(_localDrafts?.refreshCatalogs());
         await _recorder?.foreground();
@@ -94,6 +104,8 @@ class _BootstrapState extends State<_Bootstrap> {
   }
 
   Future<void> _closeGraph() async {
+    await _queue?.close();
+    _queue = null;
     await _localRecorder?.close();
     await _localDrafts?.drain();
     _localRecorder?.dispose();
@@ -153,6 +165,12 @@ class _BootstrapState extends State<_Bootstrap> {
         legacyTextOwnerStopped: true,
         legacyAudioOwnerStopped: !await FlutterForegroundTask.isRunningService,
       );
+      if (!await FlutterForegroundTask.isRunningService) {
+        await localDrafts.pauseQueueScope(false);
+      }
+      final queue = DraftQueueCoordinator(localDrafts);
+      _queue = queue;
+      await queue.start();
       final controller = MeetingController(
         api,
         localDrafts.legacyTextHandoffPending

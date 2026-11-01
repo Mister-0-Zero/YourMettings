@@ -21,7 +21,11 @@ class SelectionPage extends StatefulWidget {
     required this.title,
     this.original,
     this.onAccepted,
+    this.onController,
+    this.onFailure,
   });
+  final void Function(SelectionController)? onController;
+  final FutureOr<void> Function(Object)? onFailure;
   final ApiClient api;
   final String slot, title;
   final Future<Json> Function() source;
@@ -41,6 +45,7 @@ class _SelectionPageState extends State<SelectionPage>
     source: widget.source,
     initialOptions: widget.options,
     original: widget.original,
+    onFailure: widget.onFailure,
   );
   late ProcessingOptions _options = widget.options;
   bool _finishing = false, _allowExit = false;
@@ -143,6 +148,7 @@ class _SelectionPageState extends State<SelectionPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.onController?.call(c);
     c.addListener(_changed);
     unawaited(_resolveName(_options.templateId));
     unawaited(c.initialize());

@@ -25,11 +25,17 @@ class EmptyDraftVault implements DemoKeyVault {
 
 class TestDraftOwnerPool {
   final held = <String>{};
-  bool failWrites = false;
+  bool failWrites = false, cooperativeYield = false;
+  final yielding = <String>{};
   bool Function(File file, String encoded)? rejectSnapshot;
   int freeBytes = 1024 * 1024 * 1024;
+  Future<void> requestYield(String scope) async {
+    if (cooperativeYield) yielding.add(scope);
+  }
+
   Future<QueueOwnerLease?> acquire(String scope) async {
     if (!held.add(scope)) return null;
+    yielding.remove(scope);
     return TestDraftLease(this, scope);
   }
 }
@@ -64,6 +70,8 @@ class TestDraftLease implements QueueOwnerLease {
     _check();
   }
 
+  @override
+  Future<bool> shouldYield() async => closed || pool.yielding.contains(scopeId);
   @override
   Future<int> availableBytes() async => pool.freeBytes;
   @override
@@ -134,6 +142,7 @@ class DraftTestFixture {
   final List<Uri> httpCalls;
   static Future<DraftTestFixture> create({
     http.Response Function(http.Request request)? response,
+    Duration acquireTimeout = const Duration(milliseconds: 50),
   }) async {
     final root = await Directory.systemTemp.createTemp('ym-workspace-');
     final pool = TestDraftOwnerPool(),
@@ -159,6 +168,8 @@ class DraftTestFixture {
       connection: binding,
       api: api,
       acquireOwner: pool.acquire,
+      yieldOwner: pool.requestYield,
+      acquireTimeout: acquireTimeout,
     );
     return DraftTestFixture._(
       root,

@@ -150,4 +150,20 @@ class QueueOwnerBrokerTest {
         } finally { QueueOwnerBroker.releaseEngine("ui");root.deleteRecursively() }
     }
 
+    @Test fun yieldIsCooperativeAndNeverStealsLiveOwner() {
+        val root = Files.createTempDirectory("ym-yield-").toFile()
+        try {
+            val token = QueueOwnerBroker.acquire(root, scope, "worker")!!
+            assertFalse(QueueOwnerBroker.shouldYield(root, scope, "worker", token))
+            assertTrue(QueueOwnerBroker.requestYield(root, scope))
+            assertTrue(QueueOwnerBroker.shouldYield(root, scope, "worker", token))
+            assertTrue(QueueOwnerBroker.valid(root, scope, "worker", token))
+            assertNull(QueueOwnerBroker.acquire(root, scope, "capture"))
+            assertTrue(QueueOwnerBroker.release(root, scope, "worker", token))
+            val next = QueueOwnerBroker.acquire(root, scope, "capture")!!
+            assertFalse(QueueOwnerBroker.shouldYield(root, scope, "capture", next))
+            assertFalse(QueueOwnerBroker.valid(root, scope, "worker", token))
+        } finally {QueueOwnerBroker.releaseEngine("worker");QueueOwnerBroker.releaseEngine("capture");root.deleteRecursively()}
+    }
+
 }
