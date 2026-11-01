@@ -277,12 +277,35 @@ class ApiClient {
       _request('POST', 'summary-selections', body: source, idempotencyKey: key);
   Future<Json> selection(String id) =>
       _request('GET', 'summary-selections/$id');
-  Future<Json> createCandidate(String id, Json options, String key) => _request(
-    'POST',
-    'summary-selections/$id/candidates',
-    body: options,
-    idempotencyKey: key,
-  );
+  Future<void> verifyCandidateTemplateVersion(Json options) async {
+    final expected = options['expected_template_version'] as String?;
+    if (expected == null) return;
+    final templateId = options['template_id'] as String?;
+    final selected = templateId == null
+        ? (await templates()).where((t) => t.isDefault).firstOrNull
+        : await template(templateId);
+    if (selected?.version != expected) {
+      throw const ApiException(
+        'template_version_conflict',
+        'Шаблон изменился. Обновите его выбор и подтвердите новую генерацию.',
+        statusCode: 409,
+      );
+    }
+  }
+
+  Future<Json> createCandidate(String id, Json options, String key) {
+    // CandidateInput has no expected_template_version. Its local precondition
+    // is verified BEFORE the controller freezes a new candidate intent. An
+    // already frozen key always replays, even if the catalog changed later.
+    final body = {...options}..remove('expected_template_version');
+    return _request(
+      'POST',
+      'summary-selections/$id/candidates',
+      body: body,
+      idempotencyKey: key,
+    );
+  }
+
   Future<Json> candidate(String id) =>
       _request('GET', 'summary-candidates/$id');
   Future<MeetingSummary> acceptSelection(

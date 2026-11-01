@@ -179,5 +179,14 @@ class LocalDraftRecord {
         (key, value) =>
             MapEntry(key, FrozenDraftRequest.fromJson(value as Json)),
       );
-  Json get serverIds => toJson()['server_ids'] as Json;
+  Json get serverIds {
+    final json = toJson();
+    final ids = json['server_ids'] as Json;
+    final active =
+        ((json['checkpoints'] as Json)['queue']
+            as Json?)?['active_selection_key'];
+    final binding =
+        (json['receipts'] as Json)['selection-bind:$active'] as Json?;
+    return {...ids, ...?binding};
+  }
 }

@@ -36,8 +36,12 @@ class DraftSelectionStore extends OperationStore {
         requests[name] = request.toJson();
       }
 
+      final oldCreate = requests['selection-create'] as Json?;
+      final sourceSlot = oldCreate?['key'] == state['key']
+          ? 'selection-create'
+          : 'selection-create:${state['key']}';
       freeze(
-        'selection-create',
+        sourceSlot,
         FrozenDraftRequest(
           method: 'POST',
           path: 'summary-selections',
@@ -54,7 +58,8 @@ class DraftSelectionStore extends OperationStore {
             method: 'POST',
             path: 'summary-selections/$sessionId/candidates',
             key: pending['key'] as String,
-            body: pending['options'] as Json,
+            body: {...pending['options'] as Json}
+              ..remove('expected_template_version'),
           ),
         );
       }
@@ -78,9 +83,32 @@ class DraftSelectionStore extends OperationStore {
         );
       }
       final ids = json['server_ids'] as Json;
-      if (sessionId != null) ids['selection_id'] = sessionId;
-      if (state['transcript_id'] != null) {
-        ids['transcript_id'] = state['transcript_id'];
+      final receipts = json['receipts'] as Json;
+      if (sessionId != null && state['transcript_id'] != null) {
+        final binding = {
+          'selection_id': sessionId,
+          'transcript_id': state['transcript_id'],
+        };
+        final receiptSlot = 'selection-bind:${state['key']}';
+        if (receipts[receiptSlot] != null &&
+            jsonEncode(receipts[receiptSlot]) != jsonEncode(binding)) {
+          throw StateError('Selection identity changed');
+        }
+        receipts[receiptSlot] = binding;
+        ids.putIfAbsent('selection_id', () => sessionId);
+        ids.putIfAbsent('transcript_id', () => state['transcript_id']);
+      }
+      if (sessionId != null && state['cancel_pending'] == true) {
+        freeze(
+          'selection-cancel:${state['key']}',
+          FrozenDraftRequest(
+            method: 'DELETE',
+            path: 'summary-selections/$sessionId',
+            key: state['key'] as String,
+            body: {},
+            query: {'confirm': 'true'},
+          ),
+        );
       }
       if (state['receipt'] != null && state['accepted_summary_id'] != null) {
         ids['summary_id'] = state['accepted_summary_id'];
@@ -89,6 +117,8 @@ class DraftSelectionStore extends OperationStore {
       }
       final checkpoints = json['checkpoints'] as Json;
       final queue = checkpoints['queue'] as Json? ?? {};
+      if (sessionId != null) queue['active_selection_key'] = state['key'];
+      checkpoints['queue'] = queue;
       if (queue['input_at_boundary'] == null &&
           checkpoints['selection'] == null) {
         checkpoints['queue'] = {...queue, 'input_at_boundary': json['input']};
@@ -99,6 +129,13 @@ class DraftSelectionStore extends OperationStore {
           ...liveQueue,
           'stage': 'result_pending',
           'next_attempt_at': null,
+        };
+      } else if (state['cancel_pending'] == true) {
+        checkpoints['queue'] = {
+          ...liveQueue,
+          'stage': 'selection_cancelling',
+          'next_attempt_at': null,
+          'paused': false,
         };
       } else if (state['accept_id'] != null ||
           state['candidate_pending'] != null) {
@@ -128,6 +165,22 @@ class DraftSelectionStore extends OperationStore {
           (j['server_ids'] as Json)['summary_id'] == null) {
         throw StateError('Accepted summary is not bound');
       }
+      if (state != null && state['accepted_summary_id'] == null) {
+        if (state['cancel_pending'] != true) {
+          throw StateError('Cancellation is not confirmed');
+        }
+        final history = c['selection_history'] as Json? ?? {};
+        history[state['key'] as String] = {...state, 'cancel_confirmed': true};
+        c['selection_history'] = history;
+        (j['receipts'] as Json).putIfAbsent(
+          'selection-cancel:${state['key']}',
+          () => {
+            'selection_id': state['session_id'],
+            'cancel_confirmed': true,
+            'source_temporary': (state['source'] as Json).containsKey('text'),
+          },
+        );
+      }
       c['selection'] = null;
       c['queue'] = {
         ...?(c['queue'] as Json?),
@@ -135,6 +188,8 @@ class DraftSelectionStore extends OperationStore {
             ? 'result_pending'
             : 'paused',
         'paused': state?['accepted_summary_id'] == null,
+        if (state?['accepted_summary_id'] == null)
+          'selection_cancelled_key': state?['key'],
         'next_attempt_at': null,
       };
     });

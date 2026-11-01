@@ -30,6 +30,7 @@ class _SelectionBackend {
   final lose = <String>{}, lost = <String>{};
   final candidates = <Json>[];
   Json? saved;
+  bool candidateError = false;
   Json session() => {
     'id': 'selection-1',
     'transcript_id': 'transcript-1',
@@ -59,7 +60,13 @@ class _SelectionBackend {
           candidates.add({
             'id': 'candidate-1',
             'selection_id': 'selection-1',
-            'status': 'ready',
+            'status': candidateError ? 'error' : 'ready',
+            'error': candidateError
+                ? {
+                    'code': 'llm_unavailable',
+                    'message': 'Synthetic model unavailable',
+                  }
+                : null,
             'content': '# Plan\n\n**Owner:** Alexey; due Friday.',
             'template_snapshot': {},
             'generation_options': body,
@@ -118,6 +125,7 @@ void main() {
     acquireOwner: f.pool.acquire,
     clientFactory: () => MockClient(b.response),
     isActive: () async => true,
+    capturePending: () async => false,
     policy: QueueRetryPolicy(now: () => now, jitter: () => 0.5),
   );
   Future<LocalDraftRecord> draft() async {
@@ -311,5 +319,113 @@ void main() {
       isNull,
     );
     expect(await activeQueueScope(f.workspace.directory, binding), isFalse);
+  });
+  test('terminal candidate error stops polling until explicit retry, never sends text/process', () async {
+    final r = await draft();
+    final b = _SelectionBackend()..candidateError = true;
+    await runner(b).run();
+    final first = b.calls.length;
+    expect(
+      draftQueue(await f.workspace.reader.read(r.localId))['stage'],
+      'needs_action',
+    );
+    now = now.add(const Duration(hours: 1));
+    await runner(b).run();
+    expect(b.calls.length, first);
+    b.candidateError = false;
+    b.candidates.clear();
+    await f.workspace.queueAction(r.localId, 'retry');
+    await runner(b).run();
+    expect(
+      draftQueue(await f.workspace.reader.read(r.localId))['stage'],
+      'manual_ready',
+    );
+    expect(
+      b.calls.any((r) => r.url.path.endsWith('/transcripts/process')),
+      isFalse,
+    );
+    expect(
+      b.calls.where(
+        (r) => r.method == 'POST' && r.url.path.endsWith('/summary-selections'),
+      ),
+      hasLength(1),
+    );
+    expect(
+      b.calls.where(
+        (r) => r.method == 'POST' && r.url.path.endsWith('/candidates'),
+      ),
+      hasLength(2),
+    );
+  });
+  test('candidate version is checked before freezing once; lostACK exact replay uses real CandidateInput fields', () async {
+    final b = _SelectionBackend()
+      ..lose.add('POST summary-selections/selection-1/candidates');
+    var version = 'a' * 64, lookups = 0;
+    Future<http.Response> response(http.Request request) async {
+      if (request.url.path.endsWith('/summary-templates/template-1')) {
+        lookups++;
+        return http.Response(
+          jsonEncode({
+            'id': 'template-1',
+            'name': 'Synthetic template',
+            'sections': <dynamic>[],
+            'is_system': true,
+            'is_default': true,
+            'version': version,
+          }),
+          200,
+        );
+      }
+      if (request.method == 'POST' &&
+          request.url.path.endsWith('/candidates')) {
+        final body = jsonDecode(request.body) as Json;
+        expect(body.keys.toSet(), {
+          'detail_level',
+          'focus_areas',
+          'additional_instructions',
+          'template_id',
+        });
+      }
+      return b.response(request);
+    }
+
+    final r = await f.workspace.create(
+      LocalDraftKind.text,
+      input: LocalDraftInput(
+        title: 'Version check',
+        text: 'Synthetic text',
+        folderIds: ['folder-1'],
+        options: {
+          'template_id': 'template-1',
+          'expected_template_version': version,
+        },
+      ),
+    );
+    await f.workspace.queueAction(r.localId, 'start');
+    DraftQueueRunner live() => DraftQueueRunner(
+      directory: f.workspace.directory,
+      connection: binding,
+      acquireOwner: f.pool.acquire,
+      capturePending: () async => false,
+      isActive: () async => true,
+      clientFactory: () => MockClient(response),
+      policy: QueueRetryPolicy(now: () => now, jitter: () => 0.5),
+    );
+    await live().run();
+    expect(lookups, 1);
+    version = 'b' * 64;
+    now = now.add(const Duration(minutes: 20));
+    await live().run();
+    expect(lookups, 1);
+    expect(
+      draftQueue(await f.workspace.reader.read(r.localId))['stage'],
+      'manual_ready',
+    );
+    final requests = (await f.workspace.reader.read(r.localId)).requests.values
+        .where((r) => r.path.endsWith('/candidates'));
+    expect(
+      requests.single.body.containsKey('expected_template_version'),
+      isFalse,
+    );
   });
 }

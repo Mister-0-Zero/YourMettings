@@ -252,6 +252,7 @@ class SelectionController extends ChangeNotifier {
   }
 
   Future<void> _prepareCandidate(Json options) async {
+    await api.verifyCandidateTemplateVersion(options);
     state = {
       ...state,
       'initial_requested': true,

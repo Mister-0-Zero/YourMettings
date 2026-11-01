@@ -221,7 +221,11 @@ class _QueueProcessingPageState extends State<QueueProcessingPage> {
             if (q['error_code'] != null)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text(queueErrorExplanation(q['error_code'] as String)),
+                child: Text(
+                  q['error_message'] is String
+                      ? q['error_message'] as String
+                      : queueErrorExplanation(q['error_code']),
+                ),
               ),
             if (q['next_attempt_at'] != null && stage == 'retry_wait')
               Text(
@@ -274,10 +278,13 @@ class _QueueProcessingPageState extends State<QueueProcessingPage> {
                 child: const Text('Приостановить передачу'),
               ),
             if (r?.kind == LocalDraftKind.audio) ...[
-              TextButton(
-                onPressed: _busy ? null : () => _action('cancel'),
-                child: const Text('Отменить обработку'),
-              ),
+              if ((audioCreate(r!)?.body['processing_mode'] ??
+                      r.input.processingMode) ==
+                  'automatic')
+                TextButton(
+                  onPressed: _busy ? null : () => _action('cancel'),
+                  child: const Text('Отменить обработку'),
+                ),
               TextButton(
                 onPressed: _busy ? null : () => _action('delete'),
                 child: const Text('Удалить встречу'),
@@ -295,15 +302,22 @@ class _QueueProcessingPageState extends State<QueueProcessingPage> {
   }
 }
 
-String queueErrorExplanation(String code) => switch (code) {
-  'review_remote_cancel_unavailable' => 'Сервер пока не разрешает удаление этой незавершённой записи. Передача приостановлена; аудио сохранено.',
-  'pipeline_parameters_locked' => 'Сервер уже принял прежние настройки. Новые правки сохранены в черновике; автоматической замены не будет.',
-  'processing_mode_locked' => 'Режим уже принят сервером. Для его изменения сначала отмените и удалите прежнюю операцию.',
-  'demo_access_expired' || 'demo_key_required' || 'demo_key_invalid' => 'Проверьте доступ в настройках подключения. Автоматические запросы остановлены.',
-  'boundary_review_required' =>
-    'Нужно прочитать распознанный текст и проверить стыки фрагментов.',
-  _ => 'Данные сохранены. Причина остановки: $code',
-};
+String queueErrorExplanation(Object? error) {
+  final fields = queueErrorFields(error);
+  if (fields['error_message'] is String) {
+    return fields['error_message'] as String;
+  }
+  final code = fields['error_code'] as String;
+  return switch (code) {
+    'review_remote_cancel_unavailable' => 'Передача приостановлена. Аудио сохранено; для окончательного удаления выберите «Удалить встречу».',
+    'pipeline_parameters_locked' => 'Сервер уже принял прежние настройки. Новые правки сохранены в черновике; автоматической замены не будет.',
+    'processing_mode_locked' => 'Режим уже принят сервером. Для его изменения сначала отмените и удалите прежнюю операцию.',
+    'demo_access_expired' || 'demo_key_required' || 'demo_key_invalid' => 'Проверьте доступ в настройках подключения. Автоматические запросы остановлены.',
+    'boundary_review_required' =>
+      'Нужно прочитать распознанный текст и проверить стыки фрагментов.',
+    _ => 'Данные сохранены. Причина остановки: $code',
+  };
+}
 
 class QueueSavedSummaryPage extends StatefulWidget {
   const QueueSavedSummaryPage({

@@ -156,7 +156,9 @@ class QueueTransport {
       abortTrigger: cancel.signal,
     );
     request.headers['Accept'] = 'application/json';
-    if (key != null) request.headers['Idempotency-Key'] = key;
+    if (key != null && method != 'DELETE') {
+      request.headers['Idempotency-Key'] = key;
+    }
     if (encodedBody != null && method != 'DELETE') {
       request.headers['Content-Type'] = 'application/json; charset=utf-8';
       request.body = encodedBody;

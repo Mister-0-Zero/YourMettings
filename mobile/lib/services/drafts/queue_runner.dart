@@ -27,17 +27,22 @@ class DraftQueueRunner {
     AcquireDraftOwner? acquireOwner,
     http.Client Function()? clientFactory,
     Future<bool> Function()? isActive,
+    Future<bool> Function()? capturePending,
     QueueRetryPolicy? policy,
     this.budget = const Duration(minutes: 4),
   }) : acquireOwner = acquireOwner ?? NativeQueueOwner.acquire,
        clientFactory = clientFactory ?? platformHttpClient,
        isActive = isActive ?? (() => activeQueueScope(directory, connection)),
+       capturePending =
+           capturePending ??
+           (() => pendingCaptureHandoff(directory, connection.scopeId)),
        policy = policy ?? QueueRetryPolicy();
   final Directory directory;
   final DemoConnection connection;
   final AcquireDraftOwner acquireOwner;
   final http.Client Function() clientFactory;
-  final Future<bool> Function() isActive;
+  final Future<bool> Function() isActive, capturePending;
+  bool get wasStopped => _stopping;
   final QueueRetryPolicy policy;
   final Duration budget;
   bool _stopping = false;
@@ -59,6 +64,10 @@ class DraftQueueRunner {
   Future<void> _run() async {
     ownerUnavailable = false;
     if (!await isActive()) return;
+    if (await capturePending()) {
+      ownerUnavailable = true;
+      return;
+    }
     final lease = await acquireOwner(connection.scopeId);
     if (lease == null) {
       ownerUnavailable = true;
@@ -100,6 +109,7 @@ class DraftQueueRunner {
       }
     });
     try {
+      await repository.recoverLocalDeletions();
       final listing = await repository.list();
       // Round-robin: one journal/HTTP step per draft per turn. A long Qwen poll
       // cannot monopolize delivery of a second independent source.
@@ -237,7 +247,13 @@ class DraftQueueRunner {
     }
     if (receipt != null) return receipt;
     Json? boundary;
-    if (slot == textCreateSlot(r)) boundary = r.input.toJson();
+    if (slot == textCreateSlot(r) ||
+        slot.startsWith('review-confirm:') ||
+        slot.startsWith('retry:') &&
+            path.endsWith('/pipeline/retry') &&
+            body['parameters'] != null) {
+      boundary = r.input.toJson();
+    }
     if (slot == 'audio-complete' &&
         audioCreate(r)?.body['processing_mode'] == 'automatic') {
       final parameters =
@@ -336,7 +352,7 @@ class DraftQueueRunner {
       return;
     }
     if (r.kind == LocalDraftKind.text) {
-      if ((r.requests.containsKey('selection-create') ||
+      if ((r.requests.keys.any((slot) => slot.startsWith('selection-create')) ||
               r.input.processingMode == 'review') &&
           r.requests[textCreateSlot(r)] == null) {
         await _manual(j, t);
@@ -635,7 +651,10 @@ class DraftQueueRunner {
     if (response['status'] == 'error') {
       await j.status(
         'needs_action',
-        fields: {'error_code': response['error'], 'next_attempt_at': null},
+        fields: {
+          ...queueErrorFields(response['error']),
+          'next_attempt_at': null,
+        },
       );
       return;
     }
@@ -646,7 +665,7 @@ class DraftQueueRunner {
     var r = await j.read();
     final q = draftQueue(r);
     final id = session['transcript_id'] as String;
-    final remote = await t.json('GET', 'transcripts/$id');
+    var remote = await t.json('GET', 'transcripts/$id');
     final source =
         (r.toJson()['checkpoints'] as Json)['review_source'] as Json?;
     if (source == null) {
@@ -677,8 +696,36 @@ class DraftQueueRunner {
         statusCode: 409,
       );
     }
+    var baseline = source['applied_text'] ?? source['text'];
+    // Reconcile a lost PATCH reply by reading exact content before any newer
+    // edit. Never blindly replay over a third-party version of this source.
+    for (final entry in r.requests.entries.where(
+      (e) => e.key.startsWith('review-patch:'),
+    )) {
+      if ((r.toJson()['receipts'] as Json).containsKey(entry.key)) continue;
+      if (remote['text'] != entry.value.body['text']) {
+        if (remote['text'] != baseline) {
+          throw const ApiException(
+            'review_outdated',
+            'Источник изменился. Ваши локальные правки сохранены.',
+            statusCode: 409,
+          );
+        }
+        final response = await t.frozen(entry.value);
+        await j.receipt(entry.key, response);
+        remote = await t.json('GET', 'transcripts/$id');
+      } else {
+        await j.receipt(entry.key, remote);
+      }
+      baseline = entry.value.body['text'];
+      await j.change((json) {
+        ((json['checkpoints'] as Json)['review_source']
+                as Json)['applied_text'] =
+            baseline;
+      });
+    }
     if (remote['text'] != r.input.text) {
-      if (remote['text'] != source['text']) {
+      if (remote['text'] != baseline) {
         throw const ApiException(
           'review_outdated',
           'Источник изменён на сервере. Локальные правки сохранены.',
@@ -688,6 +735,11 @@ class DraftQueueRunner {
       final slot = 'review-patch:${q['review_attempt']}';
       await _operation(j, t, slot, 'PATCH', 'transcripts/$id', {
         'text': r.input.text,
+      });
+      await j.change((json) {
+        ((json['checkpoints'] as Json)['review_source']
+                as Json)['applied_text'] =
+            r.input.text;
       });
     }
     final fresh = await t.json('GET', 'audio-sessions/${session['id']}');
@@ -720,6 +772,10 @@ class DraftQueueRunner {
   Future<void> _manual(QueueJournal j, QueueTransport t) async {
     final r = await j.read();
     final q = draftQueue(r);
+    if (r.kind == LocalDraftKind.audio && q['review_confirmed'] != true) {
+      await j.status('review_required', fields: {'next_attempt_at': null});
+      return;
+    }
     final store = DraftSelectionStore(j);
     await store.load();
     final api = ApiClient(connection.base, client: t.client, operations: store);
@@ -731,9 +787,12 @@ class DraftQueueRunner {
       source: () async => {
         if (r.kind == LocalDraftKind.audio) ...{
           'audio_session_id': r.serverIds['audio_session_id'],
+          'confirm': q['review_confirmed'] == true,
           'reviewed_text_sha256': q['reviewed_sha256'],
           'boundaries_reviewed': q['boundaries_reviewed'] == true,
-        } else
+        } else if (_borrowedTextSource(r) != null)
+          'transcript_id': _borrowedTextSource(r)
+        else
           'text': r.input.text,
         'title': r.input.title.trim(),
         'folder_ids': r.input.folderIds,
@@ -746,11 +805,54 @@ class DraftQueueRunner {
     );
     try {
       await c.initialize();
+      if (failure is ApiException &&
+          c.state['session_id'] == null &&
+          [400, 404, 422].contains((failure as ApiException).statusCode)) {
+        final error = failure as ApiException;
+        await j.receipt('selection-reject:${c.state['key']}', {
+          '_rejected': true,
+          'code': error.code,
+          'status': error.statusCode,
+        });
+        await j.status(
+          'needs_action',
+          fields: {'selection_source_rejected': true},
+        );
+        throw ApiException(
+          'source_input_rejected',
+          error.message,
+          statusCode: 422,
+        );
+      }
       if (failure != null) throw failure!;
       if (c.accepted != null) {
         await _finish(j, t);
         return;
       }
+      if (q['retry_kind'] == 'candidate' &&
+          !c.generating &&
+          !c.hasPending &&
+          !c.frozen) {
+        await c.generate(ProcessingOptions.fromJson(r.input.options));
+        if (failure != null) throw failure!;
+        await j.status('generating_qwen', fields: {'retry_kind': null});
+      }
+      if (c.active?['status'] == 'error') {
+        await j.status(
+          'needs_action',
+          fields: {
+            'server_phase': 'candidate_error',
+            ...queueErrorFields(
+              c.active?['error'],
+              fallback: 'candidate_error',
+            ),
+            'next_attempt_at': null,
+          },
+        );
+        return;
+      }
+
+      if (c.terminal && store[store.selectionSlot] == null) return;
       if (c.terminal) {
         throw const ApiException(
           'selection_closed',
@@ -783,7 +885,18 @@ class DraftQueueRunner {
       await _finish(j, t);
       return;
     }
-    if (id == null && r.requests.isEmpty) {
+    final rejectedSource =
+        q['selection_source_rejected'] == true ||
+        r.requests.isNotEmpty &&
+            r.requests.keys.every(
+              (key) =>
+                  ((r.toJson()['receipts'] as Json)[key]
+                      as Json?)?['_rejected'] ==
+                  true,
+            );
+    if (id == null &&
+        r.serverIds.isEmpty &&
+        (r.requests.isEmpty || rejectedSource)) {
       if (command == 'delete') {
         await j.repository.deleteLocal(
           r.localId,
@@ -803,23 +916,20 @@ class DraftQueueRunner {
         statusCode: 409,
       );
     }
-    if (audioCreate(r)?.body['processing_mode'] != 'automatic') {
-      // Contract currently permits review DELETE only after ready_for_review.
-      // No endpoint is fabricated for a partial review upload.
-      final session = await t.json('GET', 'audio-sessions/$id');
-      if (command != 'delete' || session['status'] != 'ready_for_review') {
-        await j.status(
-          'paused',
-          fields: {
-            'paused': true,
-            'command': null,
-            'error_code': 'review_remote_cancel_unavailable',
-            'next_attempt_at': null,
-          },
-        );
-        return;
-      }
-    } else {
+    final review = audioCreate(r)?.body['processing_mode'] != 'automatic';
+    if (review && command != 'delete') {
+      await j.status(
+        'paused',
+        fields: {
+          'paused': true,
+          'command': null,
+          'error_code': 'review_remote_cancel_unavailable',
+          'next_attempt_at': null,
+        },
+      );
+      return;
+    }
+    if (!review) {
       await _operation(
         j,
         t,
@@ -837,7 +947,7 @@ class DraftQueueRunner {
         'DELETE',
         'audio-sessions/$id',
         {},
-        query: {'confirm': 'true'},
+        query: {'confirm': 'true', if (review) 'discard_unprocessed': 'true'},
       );
       final current = await j.read();
       await j.repository.deleteLocal(
@@ -877,7 +987,9 @@ class DraftQueueRunner {
     final changed =
         boundary == null &&
             (r.requests.containsKey('audio-complete') ||
-                r.requests.containsKey('selection-create'))
+                r.requests.keys.any(
+                  (slot) => slot.startsWith('selection-create'),
+                ))
         ? true
         : boundary != null
         ? draftInputFingerprint(LocalDraftInput.fromJson(boundary)) !=
@@ -959,4 +1071,33 @@ Future<bool> activeQueueScope(
   } catch (_) {
     return false;
   }
+}
+
+Future<bool> pendingCaptureHandoff(Directory directory, String scope) async {
+  final ticket = await NativeQueueOwner.captureTicket();
+  if (ticket?['scope'] != scope) return false;
+  final id = ticket?['local_id'];
+  if (id == null || !localDraftIdPattern.hasMatch(id)) return true;
+  try {
+    final repository = LocalDraftRepository(
+      scopeDirectory: directory,
+      authority: ReadOnlyDraftAuthority(scope),
+    );
+    final record = await repository.read(id);
+    final launch =
+        (record.toJson()['checkpoints'] as Json)['capture_launch'] as Json?;
+    return launch?['nonce'] == ticket?['nonce'] && launch?['consumed'] == false;
+  } catch (_) {
+    return true;
+  }
+}
+
+String? _borrowedTextSource(LocalDraftRecord record) {
+  final history =
+      (record.toJson()['checkpoints'] as Json)['selection_history'] as Json? ??
+      {};
+  final active = draftQueue(record)['active_selection_key'];
+  final state = history[active] as Json?;
+  final source = state?['source'] as Json?;
+  return source?['transcript_id'] as String?;
 }

@@ -321,7 +321,7 @@ class DraftRecorderCoordinator extends ChangeNotifier {
   }
 
   Future<void> _readForeground() async {
-    if (_closed) return;
+    if (_closed || busy) return;
     if (await localCaptureServiceRunning()) {
       final serviceScope = (await NativeQueueOwner.captureTicket())?['scope'];
       if (serviceScope != workspace.connection.scopeId) {
@@ -336,7 +336,7 @@ class DraftRecorderCoordinator extends ChangeNotifier {
       });
     } else {
       try {
-        await workspace.withOwner((repo, _) async {
+        await workspace.withOwner((repo, lease) async {
           for (final record in (await repo.list()).items) {
             if ([
               'recording',
@@ -345,6 +345,11 @@ class DraftRecorderCoordinator extends ChangeNotifier {
             ].contains(record.toJson()['state'])) {
               await LocalAudioCapture.recover(repo, record.localId);
             }
+          }
+          final ticket = await NativeQueueOwner.captureTicket();
+          if (ticket?['scope'] == workspace.connection.scopeId &&
+              ticket?['nonce'] != null) {
+            await lease.clearCaptureTicket(ticket!['nonce']!);
           }
         });
       } on QueueOwnerLost {

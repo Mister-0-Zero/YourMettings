@@ -33,6 +33,19 @@ String draftInputFingerprint(LocalDraftInput input) => jsonEncode({
 });
 
 /// Journaling only; HTTP must never run inside authority.serialized().
+Json queueErrorFields(Object? error, {String fallback = 'processing_error'}) {
+  if (error is Json) {
+    return {
+      'error_code': error['code'] is String ? error['code'] : fallback,
+      'error_message': error['message'] is String ? error['message'] : null,
+    };
+  }
+  return {
+    'error_code': error is String && error.isNotEmpty ? error : fallback,
+    'error_message': null,
+  };
+}
+
 class QueueJournal {
   QueueJournal(this.repository, this.id);
   final LocalDraftRepository repository;

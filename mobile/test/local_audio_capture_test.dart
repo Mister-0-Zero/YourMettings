@@ -14,6 +14,7 @@ import 'package:your_mettings/services/drafts/audio_wire_plan.dart';
 import 'package:your_mettings/services/drafts/draft_record.dart';
 import 'package:your_mettings/services/drafts/draft_repository.dart';
 import 'package:your_mettings/services/drafts/local_audio_capture.dart';
+import 'package:your_mettings/services/drafts/queue_journal.dart';
 
 class _Authority implements QueueAudioAuthority {
   @override
@@ -412,5 +413,57 @@ void main() {
       ),
       isFalse,
     );
+  });
+  test('recording settings ACK persists automatic choice before finish without stopping or changing PCM', () async {
+    final root = await Directory.systemTemp.createTemp('ym-capture-settings-');
+    final authority = _Authority();
+    final repo = LocalDraftRepository(
+      scopeDirectory: Directory('${root.path}/${authority.scopeId}'),
+      authority: authority,
+    );
+    final record = await repo.create(
+      LocalDraftRecord.create(
+        scopeId: authority.scopeId,
+        kind: LocalDraftKind.audio,
+        input: LocalDraftInput(title: 'Before'),
+      ),
+    );
+    final mic = _Mic();
+    final capture = LocalAudioCapture(
+      repository: repo,
+      authority: authority,
+      localId: record.localId,
+      microphone: mic,
+    );
+    try {
+      await capture.start();
+      mic.data.add(Uint8List.fromList([1, 2, 3, 4]));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      final before = await repo.read(record.localId);
+      await capture.saveSettings(
+        LocalDraftInput(
+          title: 'Automatic now',
+          folderIds: ['folder-1'],
+          processingMode: 'automatic',
+        ),
+        false,
+        draftInputFingerprint(before.input),
+      );
+      final saved = await repo.read(record.localId);
+      expect(saved.input.processingMode, 'automatic');
+      expect(saved.input.folderIds, ['folder-1']);
+      expect(capture.snapshot['phase'], 'recording');
+      expect(mic.opened, isTrue);
+      await capture.stop();
+      await capture.finishIntent();
+      final finished = await repo.read(record.localId);
+      expect(draftQueue(finished)['online_finish_pending'], isTrue);
+      expect(await capture.source.readAsBytes(), [1, 2, 3, 4]);
+      expect(finished.requests, isEmpty);
+      expect(finished.autoStart, isFalse);
+    } finally {
+      await capture.dispose();
+      await root.delete(recursive: true);
+    }
   });
 }

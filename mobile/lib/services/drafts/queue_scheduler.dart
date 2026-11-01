@@ -58,7 +58,9 @@ void draftQueueDispatcher() {
             delay < const Duration(seconds: 30)) {
           delay = const Duration(seconds: 30);
         }
-        if (delay != null && await activeQueueScope(directory, binding)) {
+        if (!runner.wasStopped &&
+            delay != null &&
+            await activeQueueScope(directory, binding)) {
           await scheduleDraftQueue(scope, delay: delay, append: true);
         }
         return true;

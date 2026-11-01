@@ -99,7 +99,7 @@ Acceptance scheduler: worker действительно продолжает п�
 
 Этот checkpoint не объявляет всю задачу завершённой. Следующие изменения и результаты обновляются здесь и в итоговом отчёте; после успешных проверок этапов — commit/push `mobile`.
 
-## Актуальный checkpoint A — UI/FGS завершён 01.11.2026
+## Исторический checkpoint A — UI/FGS завершён 01.11.2026
 
 Реализация **7f27a6c**. Полный отчёт: [MOBILE_OFFLINE_UI_FGS_2026-11-01.md](MOBILE_OFFLINE_UI_FGS_2026-11-01.md). **343 Flutter tests,11 native JUnit, analyze и Android build успешны.** Основная HONOR остаётся0.1.5+6; промежуточная0.1.6+7 не установлена.
 
@@ -114,8 +114,17 @@ HONOR isolated production probe доказал cold local home при пусто
 Backendreadyfaf09db/report4708232/schema0011, точный API/handoff уже в mobile/docs. Координатор обновил только локальный USB session до **01.11 19:09:47 МСК**, ключ не менялся. Не возвращаться к старому вопросу expired public demo ключа: он не является текущей задачей, public .env не менять. Следующее поручение — B, а не повтор папок/foundation/A.
 
 
-## Актуальный checkpoint B —01.11.2026,19:42 МСК
+## Исторический промежуточный checkpoint B —01.11.2026,19:42 МСК
 
 Production runner/immutable requests+receipts, new automatic/review routes, native cooperative yield, scoped WorkManager/resume scheduling и processing/settings/result UI подключены. **367 Flutter/12 JVM tests + analyze прошли**; Android build прошёл, новая APK не установлена в основной пакет. Отчёт [MOBILE_OFFLINE_PIPELINE_2026-11-01.md](MOBILE_OFFLINE_PIPELINE_2026-11-01.md) содержит ограничения и оставшуюся matrix/integration. Это промежуточный checkpoint, B не объявлен завершённым. Независимые core findings ACKsha256/atomicboundary закрыты и повторно приняты координатором. Backend готовит совместимое review discard_unprocessed (f8b2f18,471tests другого агента); ждём READY перед реальными запросами, не меняем сервер. Локальный USB доступ продлён координатором до01.11 21:13:41МСК, ключ/account прежние. A не перепроверять без причины; следующий этап — завершение B review/real synthetic pipeline, затем ограниченная основная APK/HONOR приёмка.
 
 Новое прямое ограничение пользователя: проверки HONOR/USB перенесены на потом. B реализацию, unit/widget/native/build и real synthetic backend наПК довести сейчас; телефон не трогать/не просить подключать. Backendguard/объёмB не ослаблять.
+
+B runtime-update: backend discard READY (`ffbb98e`, functionalf8b2f18/2932e56), host127.0.0.1:8001/schema0011, expiry01.11 21:13:41МСК, прежний ключ. Принят actual API_CONTRACT и handoff; новая review DELETE opt-in интегрируется. Пользователь перенёс ВСЕ установки/проверки физическогоHONOR на потом: сейчас толькоПК/hostbackend/build, новый эмулятор/образы не устанавливать. Не проситьUSB/unlock/ключ; полнуюB очередь и automaticpipeline закончить сейчас.
+
+
+## Актуальный финальный checkpoint B —01.11.2026
+
+B implementation/host validation завершены:389 Flutter/12 JVM, analyze чистый, финальная APK0.1.6+7 пересобрана после fixes, подпись/v2/версия/SHA проверены. Production queue, frozen replay/parameters/WAV/ACK/complete/poll, automatic/review, per-draft opt-in, scoped WorkManager/resume/credentials, cancel/delete/repair и UI подключены. Core/final/security review принят. Реальный host8001 E2E: automatic audio/text, manual audio/text, lostACK9операций, cancel→новыйшаблон на томжеASRисточнике, pipeline repair безASR, review discard,5Summary бездублей; собственнаяQAочищена. Отчёт [MOBILE_OFFLINE_PIPELINE_2026-11-01.md](MOBILE_OFFLINE_PIPELINE_2026-11-01.md).
+
+Backend READYffbb98e/functional f8b2f18+2932e56/schema0011; использованhost127.0.0.1:8001, expiry откоординатора01.11 21:13:41МСК, ключне менять. Пользователь ЯВНО перенёс физическийHONOR/USB/установкуна потом: сейчас не проситьUSB/unlock/ключ, новыйэмулятор/SDKнеставить. BнаПКдоведён, основнаяAPKнеустанавливалась. Следующийэтаптолько по возвращениипользователяк телефону — AndroidWorkManager/OEM/screen-off/reboot/processdeath и установка итоговойAPK. СтарыйAprobe не доказательство новойBочереди.

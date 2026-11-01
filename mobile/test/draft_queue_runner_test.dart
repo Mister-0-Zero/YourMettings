@@ -140,6 +140,7 @@ void main() {
     acquireOwner: f.pool.acquire,
     clientFactory: () => MockClient(handler),
     isActive: active ?? () async => true,
+    capturePending: () async => false,
     policy: QueueRetryPolicy(now: () => now, jitter: () => 0.5),
   );
   Future<LocalDraftRecord> draft({
@@ -560,6 +561,388 @@ void main() {
         jsonDecode(jsonEncode(request.toJson())),
       );
       expect(copy.query, {'confirm': 'true', 'discard_unprocessed': 'true'});
+    },
+  );
+  test('automatic cancel after unknown create first binds exact old session, never uploads new chunks', () async {
+    final r = await draft();
+    final b = _Backend()..lose.add('POST audio-sessions');
+    var cancels = 0;
+    Future<http.Response> handler(http.Request request) async {
+      if (request.url.path.endsWith('/pipeline/cancel')) {
+        cancels++;
+        expect(jsonDecode(request.body), {'confirm': true});
+        return http.Response(
+          jsonEncode({
+            ...b.session(),
+            'pipeline': {'mode': 'automatic', 'phase': 'cancelled'},
+          }),
+          200,
+        );
+      }
+      return b.response(request);
+    }
+
+    await runner(handler).run();
+    await f.workspace.queueAction(r.localId, 'cancel');
+    await runner(handler).run();
+    final kept = await f.workspace.reader.read(r.localId);
+    expect(kept.serverIds['audio_session_id'], 'audio-1');
+    expect(draftQueue(kept)['stage'], 'cancelled');
+    expect(cancels, 1);
+    expect(b.calls.any((r) => r.url.path.endsWith('/chunks')), isFalse);
+    expect(
+      await File(
+        '${f.workspace.reader.draftDirectory(r.localId).path}/source.pcm',
+      ).exists(),
+      isTrue,
+    );
+  });
+  test('automatic DELETE lost ACK repeats DELETE204 before any GET and removes source only after confirmation', () async {
+    final r = await draft();
+    final b = _Backend()..lose.add('POST audio-sessions');
+    var deletes = 0, deleted = false;
+    Future<http.Response> handler(http.Request request) async {
+      if (request.url.path.endsWith('/pipeline/cancel')) {
+        return http.Response(jsonEncode(b.session()), 200);
+      }
+      if (request.method == 'DELETE') {
+        deletes++;
+        expect(request.url.queryParameters, {'confirm': 'true'});
+        expect(request.body, isEmpty);
+        expect(request.headers.containsKey('Idempotency-Key'), isFalse);
+        deleted = true;
+        if (deletes == 1) throw http.ClientException('delete ACK lost');
+        return http.Response('', 204);
+      }
+      if (deleted && request.url.path.endsWith('/audio-sessions/audio-1')) {
+        throw StateError('Must replay DELETE before GET404');
+      }
+      return b.response(request);
+    }
+
+    await runner(handler).run();
+    await f.workspace.queueAction(r.localId, 'delete');
+    await runner(handler).run();
+    expect(await f.workspace.reader.draftDirectory(r.localId).exists(), isTrue);
+    now = now.add(const Duration(minutes: 20));
+    await runner(handler).run();
+    expect(deletes, 2);
+    expect(
+      await f.workspace.reader.draftDirectory(r.localId).exists(),
+      isFalse,
+    );
+  });
+  test(
+    'busy cancel/delete retries boundedly without dropping command or source',
+    () async {
+      final r = await draft();
+      final b = _Backend()..lose.add('POST audio-sessions');
+      var busy = true, calls = 0;
+      Future<http.Response> handler(http.Request request) async {
+        if (request.url.path.endsWith('/pipeline/cancel')) {
+          calls++;
+          if (busy) {
+            return http.Response(
+              '{"error":{"code":"audio_session_busy"}}',
+              409,
+            );
+          }
+          return http.Response(jsonEncode(b.session()), 200);
+        }
+        if (request.method == 'DELETE') return http.Response('', 204);
+        return b.response(request);
+      }
+
+      await runner(handler).run();
+      await f.workspace.queueAction(r.localId, 'delete');
+      await runner(handler).run();
+      final kept = await f.workspace.reader.read(r.localId);
+      expect(draftQueue(kept)['command'], 'delete');
+      expect(draftQueue(kept)['stage'], 'retry_wait');
+      await runner(handler).run();
+      expect(calls, 1);
+      busy = false;
+      now = now.add(const Duration(minutes: 20));
+      await runner(handler).run();
+      expect(
+        await f.workspace.reader.draftDirectory(r.localId).exists(),
+        isFalse,
+      );
+    },
+  );
+  test('capture handoff prevents queue acquiring scope between UI release and FGS start', () async {
+    await draft();
+    var requests = 0;
+    final run = DraftQueueRunner(
+      directory: f.workspace.directory,
+      connection: binding,
+      acquireOwner: f.pool.acquire,
+      clientFactory: () => MockClient((request) async {
+        requests++;
+        return http.Response('{}', 200);
+      }),
+      isActive: () async => true,
+      capturePending: () async => true,
+    );
+    await run.run();
+    expect(requests, 0);
+    expect(run.ownerUnavailable, isTrue);
+    expect(f.pool.held, isEmpty);
+  });
+  test('review partial upload delete freezes explicit discard flags, busy/lost204 replay never creates complete', () async {
+    final r = await draft(mode: 'review');
+    final b = _Backend()..lose.add('POST audio-sessions');
+    var deletes = 0;
+    Future<http.Response> handler(http.Request request) async {
+      if (request.method == 'DELETE') {
+        deletes++;
+        expect(request.url.queryParameters, {
+          'confirm': 'true',
+          'discard_unprocessed': 'true',
+        });
+        expect(request.body, isEmpty);
+        expect(request.headers.containsKey('Idempotency-Key'), isFalse);
+        if (deletes == 1) {
+          return http.Response('{"error":{"code":"audio_session_busy"}}', 409);
+        }
+        if (deletes == 2) throw http.ClientException('204 lost after delete');
+        return http.Response('', 204);
+      }
+      return b.response(request);
+    }
+
+    await runner(handler).run();
+    await f.workspace.queueAction(r.localId, 'delete');
+    await runner(handler).run();
+    expect(await f.workspace.reader.draftDirectory(r.localId).exists(), isTrue);
+    now = now.add(const Duration(minutes: 20));
+    await runner(handler).run();
+    final kept = await f.workspace.reader.read(r.localId);
+    expect(kept.requests['remote-delete']!.query, {
+      'confirm': 'true',
+      'discard_unprocessed': 'true',
+    });
+    now = now.add(const Duration(minutes: 20));
+    await runner(handler).run();
+    expect(deletes, 3);
+    expect(
+      await f.workspace.reader.draftDirectory(r.localId).exists(),
+      isFalse,
+    );
+    expect(
+      b.calls.any(
+        (r) =>
+            r.url.path.endsWith('/chunks') ||
+            r.url.path.endsWith('/complete') ||
+            r.url.path.endsWith('/confirm'),
+      ),
+      isFalse,
+    );
+  });
+  for (final sourceReady in [false, true]) {
+    test(
+      'explicit ${sourceReady ? 'Qwen pipeline' : 'ASR'} retry preserves existing session and bytes; lost receipt replays same request',
+      () async {
+        final b = _Backend();
+        final r = await draft();
+        var failed = true, retries = 0;
+        final retryBodies = <String>[], retryKeys = <String?>[];
+        Future<http.Response> handler(http.Request request) async {
+          if (request.method == 'GET' &&
+              request.url.path.endsWith('/audio-sessions/audio-1')) {
+            return http.Response(
+              jsonEncode({
+                ...b.session(),
+                'status': failed ? 'failed' : 'completed',
+                'transcript_id': sourceReady || !failed ? 'transcript-1' : null,
+                'pipeline': {
+                  'mode': 'automatic',
+                  'phase': failed ? 'error' : 'completed',
+                  'error_code': failed
+                      ? (sourceReady ? 'llm_unavailable' : 'chunk_failed')
+                      : null,
+                  'summary_id': failed ? null : 'summary-1',
+                },
+              }),
+              200,
+            );
+          }
+          if (request.method == 'POST' && request.url.path.endsWith('/retry')) {
+            retries++;
+            expect(
+              request.url.path,
+              endsWith(sourceReady ? '/pipeline/retry' : '/audio-1/retry'),
+            );
+            retryBodies.add(request.body);
+            retryKeys.add(request.headers['Idempotency-Key']);
+            failed = false;
+            if (retries == 1) throw http.ClientException('retry receipt lost');
+            return http.Response(jsonEncode(b.session()), 200);
+          }
+          return b.response(request);
+        }
+
+        await runner(handler).run();
+        final failedDraft = await f.workspace.reader.read(r.localId);
+        expect(draftQueue(failedDraft)['stage'], 'needs_action');
+        final chunks = b.calls
+            .where((r) => r.url.path.endsWith('/chunks'))
+            .length;
+        await f.workspace.queueAction(r.localId, 'retry', repair: sourceReady);
+        await runner(handler).run();
+        now = now.add(const Duration(minutes: 20));
+        await runner(handler).run();
+        expect(retries, 2);
+        expect(retryBodies.first, retryBodies.last);
+        expect(retryKeys.first, retryKeys.last);
+        expect(
+          b.calls.where((r) => r.url.path.endsWith('/chunks')),
+          hasLength(chunks),
+        );
+        expect(
+          b.calls.where(
+            (r) => r.method == 'POST' && r.url.path.endsWith('/audio-sessions'),
+          ),
+          hasLength(1),
+        );
+        expect(
+          await f.workspace.reader.draftDirectory(r.localId).exists(),
+          isFalse,
+        );
+      },
+    );
+  }
+  test('automatic boundary requires user review; lost PATCH/confirm receipts keep real edited text and SHA, never manual candidate', () async {
+    final b = _Backend();
+    final r = await draft();
+    var text = 'Original recognized source',
+        sha = 'a' * 64,
+        confirmed = false,
+        patches = 0,
+        confirms = 0;
+    final confirmsBody = <String>[];
+    Future<http.Response> handler(http.Request request) async {
+      if (request.method == 'GET' &&
+          request.url.path.endsWith('/audio-sessions/audio-1')) {
+        return http.Response(
+          jsonEncode({
+            ...b.session(),
+            'status': confirmed ? 'completed' : 'ready_for_review',
+            'transcript_id': 'transcript-1',
+            'transcript_sha256': sha,
+            'boundary_warnings': [
+              {'sequence_number': 1, 'code': 'overlap_not_aligned'},
+            ],
+            'pipeline': {
+              'mode': 'automatic',
+              'phase': confirmed ? 'completed' : 'review_required',
+              'summary_id': confirmed ? 'summary-1' : null,
+            },
+          }),
+          200,
+        );
+      }
+      if (request.method == 'GET' &&
+          request.url.path.endsWith('/transcripts/transcript-1')) {
+        return http.Response(
+          jsonEncode({'id': 'transcript-1', 'text': text, 'is_locked': false}),
+          200,
+        );
+      }
+      if (request.method == 'PATCH') {
+        patches++;
+        text = (jsonDecode(request.body) as JsonMap)['text'] as String;
+        sha = 'b' * 64;
+        throw http.ClientException('PATCH applied but reply lost');
+      }
+      if (request.url.path.endsWith('/confirm')) {
+        confirms++;
+        confirmsBody.add(request.body);
+        final body = jsonDecode(request.body) as JsonMap;
+        expect(body['confirm'], isTrue);
+        expect(body['boundaries_reviewed'], isTrue);
+        expect(body['reviewed_text_sha256'], sha);
+        confirmed = true;
+        if (confirms == 1) {
+          throw http.ClientException('confirm accepted but reply lost');
+        }
+        return http.Response(
+          '{"transcript_id":"transcript-1","status":"ready","summary_id":"summary-1"}',
+          200,
+        );
+      }
+      expect(request.url.path.contains('summary-selections'), isFalse);
+      return b.response(request);
+    }
+
+    await runner(handler).run();
+    expect(confirms, 0);
+    final ready = await f.workspace.reader.read(r.localId);
+    expect(ready.input.text, text);
+    await f.workspace.save(
+      ready.localId,
+      revision: ready.revision,
+      input: LocalDraftInput(
+        title: ready.input.title,
+        text: 'Reviewed text with corrected boundary.',
+        folderIds: ready.input.folderIds,
+        processingMode: 'automatic',
+      ),
+      autoStart: false,
+    );
+    await f.workspace.queueAction(
+      r.localId,
+      'start',
+      boundariesReviewed: false,
+    );
+    await runner(handler).run();
+    expect(patches, 0);
+    expect(confirms, 0);
+    expect(
+      draftQueue(await f.workspace.reader.read(r.localId))['error_code'],
+      'boundary_review_required',
+    );
+    await f.workspace.queueAction(r.localId, 'start', boundariesReviewed: true);
+    for (var i = 0; i < 4; i++) {
+      await runner(handler).run();
+      now = now.add(const Duration(minutes: 20));
+    }
+    expect(patches, 1);
+    expect(confirms, 2);
+    expect(confirmsBody.first, confirmsBody.last);
+    expect(text, 'Reviewed text with corrected boundary.');
+    expect(
+      await f.workspace.reader.draftDirectory(r.localId).exists(),
+      isFalse,
+    );
+  });
+  test(
+    'headless restart finishes a confirmed local cleanup marker without HTTP',
+    () async {
+      final r = await draft(requested: false);
+      final marker = File(
+        '${f.workspace.directory.path}/draft-deletions/${r.localId}.json',
+      );
+      await marker.parent.create(recursive: true);
+      await marker.writeAsString(
+        jsonEncode({
+          'schema': 1,
+          'confirmed': true,
+          'local_id': r.localId,
+          'scope_id': r.scopeId,
+          'revision': r.revision,
+          'remote_outcome_confirmed': false,
+        }),
+        flush: true,
+      );
+      final b = _Backend();
+      await runner(b.response).run();
+      expect(await marker.exists(), isFalse);
+      expect(
+        await f.workspace.reader.draftDirectory(r.localId).exists(),
+        isFalse,
+      );
+      expect(b.calls, isEmpty);
     },
   );
 }

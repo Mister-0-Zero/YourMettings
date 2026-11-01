@@ -279,6 +279,29 @@ class DraftWorkspace extends ChangeNotifier {
           }
           fields.addAll({'requested': true, 'paused': false, 'command': null});
           if (action == 'reconcile') fields['keep_accepted_parameters'] = true;
+          if (q['selection_source_rejected'] == true &&
+              record.serverIds['selection_id'] == null &&
+              action != 'reconcile') {
+            final state =
+                (record.toJson()['checkpoints'] as Json)['selection'] as Json?;
+            if (state != null &&
+                (record.toJson()['receipts']
+                        as Json)['selection-reject:${state['key']}'] !=
+                    null) {
+              await journal.change((j) {
+                final c = j['checkpoints'] as Json;
+                final history = c['rejected_selections'] as Json? ?? {};
+                history[state['key'] as String] = state;
+                c['rejected_selections'] = history;
+                c['selection'] = null;
+              });
+              fields.addAll({
+                'selection_source_rejected': false,
+                'input_at_boundary': null,
+              });
+            }
+          }
+
           if (record.serverIds.isEmpty && action != 'reconcile') {
             final slot = record.kind == LocalDraftKind.audio
                 ? audioCreateSlot(record)
@@ -294,6 +317,21 @@ class DraftWorkspace extends ChangeNotifier {
             }
           }
 
+          if (q['selection_cancelled_key'] != null &&
+              (record.toJson()['checkpoints'] as Json)['selection'] == null) {
+            final receipt =
+                (record.toJson()['receipts']
+                        as Json)['selection-cancel:${q['selection_cancelled_key']}']
+                    as Json?;
+            if (receipt?['cancel_confirmed'] == true) {
+              fields.addAll({
+                'selection_cancelled_key': null,
+                'input_at_boundary': null,
+                'retry_kind': null,
+                'error_code': null,
+              });
+            }
+          }
           if ((record.toJson()['checkpoints'] as Json)['review_source'] !=
                   null &&
               action != 'reconcile') {
@@ -305,7 +343,11 @@ class DraftWorkspace extends ChangeNotifier {
           }
           if (action == 'retry' &&
               record.serverIds['transcript_id'] != null &&
-              q['stage'] == 'needs_action') {
+              q['stage'] == 'needs_action' &&
+              ![
+                'boundary_review_required',
+                'review_outdated',
+              ].contains(q['error_code'])) {
             fields.addAll({
               'retry_kind': record.kind == LocalDraftKind.text
                   ? 'text'
@@ -322,6 +364,14 @@ class DraftWorkspace extends ChangeNotifier {
               q['error_code'] != 'pipeline_parameters_locked') {
             fields.addAll({
               'retry_kind': 'asr',
+              'retry_attempt': newSectionId(),
+            });
+          }
+          if (action == 'retry' &&
+              (record.toJson()['checkpoints'] as Json)['selection'] != null &&
+              q['stage'] == 'needs_action') {
+            fields.addAll({
+              'retry_kind': 'candidate',
               'retry_attempt': newSectionId(),
             });
           }
