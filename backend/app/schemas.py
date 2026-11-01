@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 NonemptyText = Annotated[str, StringConstraints(min_length=1)]
@@ -62,6 +63,21 @@ class FolderAssignment(Input):
     def unique_ids(self):
         if len(set(self.folder_ids)) != len(self.folder_ids):
             raise ValueError("folder_ids must be unique")
+        return self
+
+
+class SummaryFolderAssignment(FolderAssignment):
+    # Kept off the shared FolderAssignment base used by creation/process inputs.
+    expected_folder_ids: Annotated[list[UUID], Field(min_length=0, max_length=100)] | SkipJsonSchema[None] = Field(default=None,
+        description="Optional set precondition, order-independent. Empty is allowed; explicit null and duplicates are invalid. If target is already current, returns 200 without mutation.")
+
+    @model_validator(mode="after")
+    def valid_expected_folders(self):
+        if "expected_folder_ids" in self.model_fields_set:
+            if self.expected_folder_ids is None:
+                raise ValueError("Explicit null expected_folder_ids is not allowed")
+            if len(set(self.expected_folder_ids)) != len(self.expected_folder_ids):
+                raise ValueError("expected_folder_ids must be unique")
         return self
 
 

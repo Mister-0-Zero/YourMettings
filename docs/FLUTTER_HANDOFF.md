@@ -1,5 +1,7 @@
 # YourMettings: подключение Flutter к backend
 
+Доработка размещений от 01.11.2026 (одобрена к публикации; runtime сверять с deployment checkpoint): [FLUTTER_FOLDERS_HANDOFF.md](FLUTTER_FOLDERS_HANDOFF.md).
+
 **Для текущей удалённой демонстрации сначала применить [FLUTTER_DEMO_HANDOFF.md](FLUTTER_DEMO_HANDOFF.md): HTTPS + X-Demo-Key, общий изолированный demo-аккаунт. Почтовый вход временно отключён, LAN listener закрыт.**
 
 **Будущий обычный режим авторизации:** [FLUTTER_AUTH_HANDOFF.md](FLUTTER_AUTH_HANDOFF.md). При DEMO_ENABLED=false после активации 0009 пользовательские запросы требуют Bearer; прежние сведения о тестовом общем пользователе больше не применяются.

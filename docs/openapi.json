@@ -1027,7 +1027,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FolderAssignment"
+                "$ref": "#/components/schemas/SummaryFolderAssignment"
               }
             }
           }
@@ -1042,6 +1042,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "summary_folders_conflict: current placement differs from both expected and target sets"
           },
           "422": {
             "description": "Validation Error",
@@ -3528,26 +3531,6 @@
         ],
         "title": "ExampleOut"
       },
-      "FolderAssignment": {
-        "properties": {
-          "folder_ids": {
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "type": "array",
-            "maxItems": 100,
-            "minItems": 1,
-            "title": "Folder Ids"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "folder_ids"
-        ],
-        "title": "FolderAssignment"
-      },
       "FolderInput": {
         "properties": {
           "name": {
@@ -4284,6 +4267,37 @@
         "additionalProperties": false,
         "type": "object",
         "title": "SummaryEdit"
+      },
+      "SummaryFolderAssignment": {
+        "properties": {
+          "folder_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Folder Ids"
+          },
+          "expected_folder_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 0,
+            "title": "Expected Folder Ids",
+            "description": "Optional set precondition, order-independent. Empty is allowed; explicit null and duplicates are invalid. If target is already current, returns 200 without mutation."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "folder_ids"
+        ],
+        "title": "SummaryFolderAssignment"
       },
       "SummaryList": {
         "properties": {

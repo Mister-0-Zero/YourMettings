@@ -109,6 +109,6 @@ def test_openapi_limits_remain_specific_to_audio_creation(client):
     assert create["properties"]["folder_ids"]["maxItems"] == 100
     assert create["properties"]["folder_ids"].get("minItems", 0) == 0
     assert schemas["AudioSessionOut"]["properties"]["parameters"]["$ref"].endswith("/AudioSessionInput")
-    for name in ("AudioConfirm", "ProcessInput", "CreateProcessInput", "FolderAssignment"):
+    for name in ("AudioConfirm", "ProcessInput", "CreateProcessInput", "SummaryFolderAssignment"):
         assert "folder_ids" in schemas[name]["required"]
         assert schemas[name]["properties"]["folder_ids"]["minItems"] == 1

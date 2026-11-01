@@ -11,7 +11,7 @@ from app.services.deletion import cleanup_transcript, lock_user_data
 from app.db.session import current_user_id, get_db
 from app.services.template_rendering import navigation
 from app.services.variants import summary_version
-from app.schemas import FolderAssignment, SummaryEdit, SummaryList, SummaryOut
+from app.schemas import SummaryFolderAssignment, SummaryEdit, SummaryList, SummaryOut
 
 router = APIRouter(prefix="/summaries", tags=["summaries"])
 
@@ -54,16 +54,25 @@ def edit_summary(id: UUID, body: SummaryEdit, db: Session = Depends(get_db)):
     return summary_response(db, item)
 
 
-@router.put("/{id}/folders", response_model=SummaryOut)
-def assign_folders(id: UUID, body: FolderAssignment, db: Session = Depends(get_db)):
+@router.put("/{id}/folders", response_model=SummaryOut, responses={
+    409: {"description": "summary_folders_conflict: current placement differs from both expected and target sets"}})
+def assign_folders(id: UUID, body: SummaryFolderAssignment, db: Session = Depends(get_db)):
     lock_user_data(db)
     item = owned_summary(db, id, lock=True)
     validate_folders(db, body.folder_ids)
-    db.execute(delete(SummaryFolder).where(SummaryFolder.summary_id == item.id))
-    db.add_all(SummaryFolder(summary_id=item.id, folder_id=fid) for fid in body.folder_ids)
-    item.updated_at = func.now()
+    current = set(db.scalars(select(SummaryFolder.folder_id).where(SummaryFolder.summary_id == item.id)))
+    target = set(body.folder_ids)
+    if current != target:
+        if body.expected_folder_ids is not None and current != set(body.expected_folder_ids):
+            fail(409, "summary_folders_conflict", "Размещения встречи изменились. Перечитайте папки перед повтором.")
+        db.execute(delete(SummaryFolder).where(SummaryFolder.summary_id == item.id))
+        db.add_all(SummaryFolder(summary_id=item.id, folder_id=fid) for fid in body.folder_ids)
+        item.updated_at = func.now()
+        db.flush()
+    # Capture one coherent response while both locks are still held, including no-op retries.
+    result = summary_response(db, item)
     db.commit()
-    return summary_response(db, item)
+    return result
 
 
 @router.delete("/{id}", status_code=204)
