@@ -2,7 +2,7 @@
 
 Рабочая ветка — `mobile`. Основной отчёт от начала этапа шаблонов до 31 октября 2026: [сводка выполненных работ](MOBILE_PROGRESS_REPORT_2026-10-31.md).
 
-Дата в таблице — дата выполнения соответствующего этапа; число тестов — весь набор на этом этапе, не количество новых тестов. Проверка на телефоне указывается отдельно от сборки и автоматических проверок. Текущий этап: **01.11.2026, B завершён на ПК** — production offline queue/automatic/review/WorkManager/UI; **389 Flutter +12 native tests**, analyze и финальная APK0.1.6+7 прошли. Реальные host GigaAM/Qwen, manual audio/text, lostACK/retry/repair/cancel/delete проверены; QA очищена. Установка и Android/OEM-приёмка перенесены пользователем на потом. [Отчёт B и APK](MOBILE_OFFLINE_PIPELINE_2026-11-01.md), [исторический отчёт A](MOBILE_OFFLINE_UI_FGS_2026-11-01.md), [план/checkpoint](MOBILE_OFFLINE_QUEUE_PLAN_2026-11-01.md).
+Дата в таблице — дата выполнения соответствующего этапа; число тестов — весь набор на этом этапе, не количество новых тестов. Проверка на телефоне указывается отдельно от сборки и автоматических проверок. Текущий этап: **01.11.2026, B завершён на ПК** (`457525b`) — production offline queue/automatic/review/WorkManager/UI; **389 Flutter +12 native tests**, analyze и финальная APK0.1.6+7 прошли. Реальные host GigaAM/Qwen, manual audio/text, lostACK/retry/repair/cancel/delete проверены; QA очищена. Установка и Android/OEM-приёмка перенесены пользователем на потом. [Отчёт B и APK](MOBILE_OFFLINE_PIPELINE_2026-11-01.md), [исторический отчёт A](MOBILE_OFFLINE_UI_FGS_2026-11-01.md), [план/checkpoint](MOBILE_OFFLINE_QUEUE_PLAN_2026-11-01.md).
 
 | Дата | Этап | Автоматические тесты | Проверка HONOR 400 | Подробный отчёт |
 |---|---|---:|---|---|

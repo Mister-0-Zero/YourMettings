@@ -40,5 +40,20 @@
   "runtime": "127.0.0.1:8001; backend READY ffbb98e/schema0011",
   "fixture": "synthetic Windows TTS WAV; mono16kHz/16-bit/21.630s",
   "scope": "host E2E with production Dart pipeline and injected host file authority",
-  "android_runtime_validated": false
+  "android_runtime_validated": false,
+  "implementation_commit": "457525b248b09abc2c70a97c8ec20b3ee03c0b8f",
+  "flutter_tests_passed": 389,
+  "native_junit_tests_passed": 12,
+  "flutter_analyze": "No issues found",
+  "apk": {
+    "version": "0.1.6+7",
+    "package": "dev.yourmettings.your_mettings",
+    "architecture": "arm64",
+    "build": "debug",
+    "bytes": 126163996,
+    "sha256": "8A6BDFCB43FF1D5260FC9C80F89224EF5EE7630CB9CFE9B0DAF941732CF8BB17",
+    "signature_v2_verified": true,
+    "certificate_sha256": "79977dbf53974bd6f768f78e0b4b46c25a63fec6e7dd925e0b8413ab33f993f5",
+    "installed_on_phone": false
+  }
 }
