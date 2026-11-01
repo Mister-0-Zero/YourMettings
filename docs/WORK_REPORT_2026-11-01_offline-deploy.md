@@ -1,6 +1,6 @@
 # Отчёт: USB rollout durable Qwen и automatic
 
-**Последний runtime update:** по отдельному разрешению координатора истёкшая USB-сессия заменена следующей; текущий срок **01.11.2026 19:09:47 МСК**, прежние ключ/аккаунт, schema0011. Подробности в checkpoint в конце. Первоначальные сроки ниже сохранены как история rollout.
+**Последний runtime update:** по отдельному разрешению координатора истёкшая USB-сессия заменена следующей; текущий срок **01.11.2026 21:13:41 МСК**, прежние ключ/аккаунт, schema0011. Подробности в checkpoint в конце. Первоначальные сроки ниже сохранены как история rollout.
 
 **01.11.2026, Москва. BACKEND AUTOMATIC READY для USB приёмки Flutter.** Реализация **faf09db** опубликована в origin/backend и fast-forward установлена в D:/programming/VSCode/project/YourMettings. Код прошёл независимое основное и delta review координатора, после **448 passed** разрешены migration/rollout. [Отчёт реализации](WORK_REPORT_2026-11-01_offline-pipeline.md), [API](API_CONTRACT.md#durable-qwen-и-opt-in-automatic--01112026), [Flutter handoff](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md).
 
@@ -61,3 +61,10 @@ Flutter следует использовать backend commit **faf09db** ил�
 Read-only smoke: прежним локально прочитанным ключом health/auth-me200, тот же demo-аккаунт; без ключа health/auth-me401. Runtime OpenAPI200 содержит актуальный pipeline API. Порт8000 без listener; .env, внешний HTTPS/ключ/expiry и сети не менялись. Ключи/токены не выводились, повторный ввод пользователем не требуется — мобильный USB vault сохранён.
 
 Полный448-suite и новые synthetic ASR/Qwen генерации не повторялись: код/schema не изменены, проверялась готовность процесса и доступа. Существующий smoke и fixture остаются действительными. Mobile может продолжить приёмку в новом ограниченном окне. Этот документационный commit публикует только runtime update; рабочий код **faf09db**, исходный deployment report **4708232**.
+
+
+## Runtime checkpoint: USB для продолжения offline-приёмки
+
+01.11.2026 после истечения19:09:47 по отдельному разрешению координатора запущена следующая2h process-only сессия через существующий helper --restart-expired. Текущий expiry **01.11.2026 21:13:41 МСК**, точный UTC `2026-11-01T18:13:41.532843+00:00`. Прежние ключ и demo-аккаунт, повторный ввод не нужен.
+
+Перед остановкой expired API PID6784 повторно проверены команда/время создания; user/upload locks исключили активные загрузки и ASR/Qwen jobs. Новый owned listener127.0.0.1:8001 PID34208. Здоровые ASR14152/dispatcher10784 и Ollama переиспользованы, schema0011. Read-only health/auth-me прежним ключом200, без ключа401; публичный8000 закрыт, .env/внешнийexpiry/HTTPS не изменены. Кодfaf09db и схема не менялись;448-suite/генерации не повторялись. Отдельная предстоящая правка review discard разрабатывается изолированно и пока сюда не развёрнута.

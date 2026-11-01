@@ -8,7 +8,7 @@
 
 ## Отчёты по задачам
 
-- [01.11.2026 — USB rollout automatic/schema0011](WORK_REPORT_2026-11-01_offline-deploy.md): faf09db опубликован, private backup проверен, реальные ASR/Qwen/retry/cancel/restart прошли; USB ready: новая отдельно разрешённая process-only сессия до01.11 19:09:47 МСК; ключ/аккаунт прежние, public доступ не продлён. Первоначальный rollout сохранён в истории отчёта.
+- [01.11.2026 — USB rollout automatic/schema0011](WORK_REPORT_2026-11-01_offline-deploy.md): faf09db опубликован, private backup проверен, реальные ASR/Qwen/retry/cancel/restart прошли; USB ready: новая отдельно разрешённая process-only сессия до01.11 21:13:41 МСК; ключ/аккаунт прежние, public доступ не продлён. Первоначальный rollout сохранён в истории отчёта.
 
 - [01.11.2026 — durable Qwen и automatic](WORK_REPORT_2026-11-01_offline-pipeline.md): review checkpoint реализации:448 тестов; последующий разрешённый rollout/schema0011 выполнен и описан в отчёте выше.
 
