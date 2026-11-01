@@ -76,3 +76,25 @@ Acceptance scheduler: worker действительно продолжает п�
 Это план последовательной реализации, не отчёт о существующей поддержке offline. Новые зависимости/endpoint/фоновые гарантии данным документом не вводятся.
 
 Уточнения координатора к принятому плану: cold offline launch ранее подтверждённого scope открывает локальный UI без обязательного auth-запроса; старые pending selections/accept receipts не импортируются как новые submit. Backend следующего этапа готовит контракт в отдельном клоне `C:/Users/Алексей/Documents/Codex/work/YourMettings-backend-offline`; production deployment и миграции — после общего ревью. Мобильный агент backend-код/конфигурацию в этом клоне не меняет.
+
+
+## Текущий checkpoint реализации — 01.11.2026, 16:50 МСК
+
+**Активная задача — полный offline/pipeline этап, а не старый вопрос о demo-ключе.** Backend готов: `faf09db`, схема `0011`, deployment report `4708232`. По сообщению backend-агента: 448 тестов и реальная synthetic ASR → Qwen → saved Summary. Это его проверки, не проверки Flutter. Локальный API `127.0.0.1:8001`, `adb reverse tcp:8000 tcp:8001`; авторизованный USB-сеанс до **01.11.2026 17:07:46 МСК**. Ключ уже provisioned в USB SecureStorage; просить вводить истёкший внешний ключ не нужно. Срок публичного доступа/конфигурацию backend Flutter-агент не меняет.
+
+На HONOR остаётся опубликованная **0.1.5+6** с проверенными папками (`95c23d5`). Текущая **0.1.6+7** — незавершённая разработка, в основное приложение на телефоне ещё не установлена.
+
+Готовая основа (пока без production UI/runner):
+
+- `mobile/packages/queue_owner/`: междвижковая JVM-регистрация + kernel file lock; token-checked atomic publish/cleanup и уникальные tmp, защита при engine detach. Append-only PCM расширение проверено JVM-тестами: offset CAS, fsync, stale-owner rejection.
+- `mobile/lib/services/drafts/draft_record.dart`, `draft_repository.dart`: независимые manifests по stable local UUID, scope/revision CAS, отдельный editable input и frozen точный JSON/key, receipts/IDs, crash-safe cleanup marker.
+- `catalog_cache.dart`: scoped last-good folders/templates и версии шаблонов. `legacy_draft_import.dart`: только read-only staging старого PendingRequest/AcceptedOperation и архива selection/accept receipts; источники сохранены, dispatch заблокирован до handoff.
+- `ProcessingOptions.expectedTemplateVersion`, `SummaryTemplate.version`; Workmanager **0.10.10** закреплён. `tool/queue_probe_main.dart` — отдельный тестовый пакет, не подмена основного приложения.
+
+Фактические текущие результаты и ограничения публикуются в [отчёте основы](MOBILE_OFFLINE_FOUNDATION_2026-11-01.md). Девять native JUnit прошли через прямой запуск скомпилированных классов с assertions: штатный Gradle test launcher на этой Windows не нашёл GradleWorkerMain при Unicode classpath; тестовый task целиком успешным не объявляется.
+
+Отдельный APK `dev.yourmettings.queue_probe` на HONOR подтвердил: новый headless engine, чтение synthetic UI-written SecureStorage, взаимное исключение UI/worker, передача ownership после drain, **token-checked atomic publish**. Все пять проверок true. Прототип удалён после сверки package/hash; основная 0.1.5+6 сохранена. Результат локально `mobile/build/queue-probe-device-result.json`, без пользовательских данных/ключей; это проверка механизма, не полная offline-приёмка.
+
+**Текущий подэтап:** `local_audio_capture.dart` — локальный PCM16 mono/16kHz с durable manifest до микрофона, stable local ID, pause/resume/stop/recover; ещё не подключён к foreground service/UI. PCM/deterministic wire-plan по negotiated limits проверены автоматическими тестами; гонка между planner instances исправлена изолированными immutable WAV (9f4de77), 16 целевых проверок прошли после фикса. Далее обязательно: production cold-offline graph/cache; FGS-команды local ID+scope+instance и единый владелец; safe legacy audio/WAV handoff; независимые audio/text drafts UI; runner exact replay → parameters ACK → immutable upload → complete/poll; automatic ASR→Qwen→saved Summary без дополнительной галочки, review/manual flow; persisted opt-in/backoff/Retry-After и WorkManager/resume triggers; cancel/delete и scope/auth pause; analyze/full tests/APK/HONOR offline+restart+background+automatic приёмка. Вложенный `serialized()` вокруг repository.create/update/freeze запрещён: эти методы сами сериализуют мутации.
+
+Этот checkpoint не объявляет всю задачу завершённой. Следующие изменения и результаты обновляются здесь и в итоговом отчёте; после успешных проверок этапов — commit/push `mobile`.
