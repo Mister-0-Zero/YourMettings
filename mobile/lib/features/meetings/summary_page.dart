@@ -11,6 +11,7 @@ import '../../services/summary_clipboard.dart';
 import '../new_meeting/meeting_controller.dart';
 import 'folder_picker.dart';
 import 'summary_editor.dart';
+import 'summary_folders.dart';
 import 'visual_document.dart';
 import 'visual_editor.dart';
 
@@ -20,10 +21,14 @@ class SummaryPageView extends StatefulWidget {
     required this.controller,
     required this.summary,
     this.startEditing = false,
+    this.sourceFolderId,
+    this.initialFolderAction,
   });
   final MeetingController controller;
   final MeetingSummary summary;
   final bool startEditing;
+  final String? sourceFolderId;
+  final FolderSelectionMode? initialFolderAction;
   @override
   State<SummaryPageView> createState() => _SummaryPageViewState();
 }
@@ -35,10 +40,25 @@ class _SummaryPageViewState extends State<SummaryPageView> {
   VisualDocument? _visual;
   late bool _editing = widget.startEditing;
   bool _busy = false;
+  bool _folderRequest = false;
   bool _allowExit = false;
+  bool _initialFolderActionOpened = false;
+  SummaryFolderIntent? _folderIntent;
   Future<void> _load() async {
     final latest = await widget.controller.api.summary(widget.summary.id);
     if (!mounted) return;
+    _adoptSummary(latest);
+    if (!_initialFolderActionOpened &&
+        widget.initialFolderAction != null &&
+        !_editing) {
+      _initialFolderActionOpened = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _changeFolders(widget.initialFolderAction!);
+      });
+    }
+  }
+
+  void _adoptSummary(MeetingSummary latest) {
     _visual?.dispose();
     _editor?.dispose();
     _editor = SummaryEditor(widget.controller.api, latest);
@@ -174,30 +194,102 @@ class _SummaryPageViewState extends State<SummaryPageView> {
     }
   }
 
-  Future<void> _changeFolders() async {
-    if (!await _flush() || !mounted) return;
-    final selected = await chooseFolders(
-      context,
-      widget.controller,
-      _editor!.summary.folderIds,
-    );
-    if (selected == null || !mounted) return;
-    setState(() => _busy = true);
+  Future<void> _changeFolders(FolderSelectionMode mode) async {
+    if (_busy || _editing) return;
+    setState(() {
+      _busy = true;
+      _folderRequest = true;
+    });
     try {
-      _editor!.setFolders(
-        await widget.controller.api.setSummaryFolders(
-          widget.summary.id,
-          selected,
+      if (!await _flush() || !mounted) return;
+      // Read before selecting; CAS also guards edits while the picker is open.
+      final baseline = await widget.controller.api.summary(widget.summary.id);
+      if (!mounted) return;
+      _editor!.setFolders(baseline);
+      widget.controller.summaryUpdated(baseline);
+      final sourceId = widget.sourceFolderId;
+      if (mode == FolderSelectionMode.move &&
+          (sourceId == null || !baseline.folderIds.contains(sourceId))) {
+        _showFolderMessage(
+          'Встреча больше не находится в исходной папке. Обновите список и выберите действие заново.',
+        );
+        await widget.controller.loadFolders();
+        return;
+      }
+      setState(() => _folderRequest = false);
+      final selected = await chooseFolders(
+        context,
+        widget.controller,
+        baseline.folderIds,
+        mode: mode,
+        sourceFolderId: sourceId,
+        suggestedSelection: _folderIntent?.mode == mode
+            ? _folderIntent!.selectionFor(baseline)
+            : null,
+      );
+      if (selected == null || !mounted) return;
+      setState(() => _folderRequest = true);
+      _folderIntent = SummaryFolderIntent(mode, baseline.folderIds, selected);
+      final destinations = summaryFolderDestinations(
+        baseline,
+        selected,
+        mode,
+        sourceFolderId: sourceId,
+      );
+      final updated = await saveSummaryFolders(
+        widget.controller.api,
+        baseline,
+        destinations,
+      );
+      if (!mounted) return;
+      // Adopt memberships only. A newer content/version in this incidental
+      // response must not silently authorize overwriting an external edit.
+      _editor!.setFolders(updated);
+      _folderIntent = null;
+      widget.controller.summaryUpdated(updated);
+      _showFolderMessage(switch (mode) {
+        FolderSelectionMode.add => 'Встреча добавлена в выбранные папки.',
+        FolderSelectionMode.move => 'Встреча перемещена.',
+        FolderSelectionMode.replace => 'Папки встречи сохранены.',
+      });
+      await widget.controller.loadFolders();
+    } on SummaryFoldersConflict catch (e) {
+      if (!mounted) return;
+      setState(() => _folderRequest = false);
+      _editor!.setFolders(e.current);
+      widget.controller.summaryUpdated(e.current);
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Папки встречи изменились'),
+          content: const Text(
+            'Другой клиент изменил папки этой встречи. Актуальный список папок загружен. Ваш выбор сохранён для повторного просмотра, но не применён автоматически. Проверьте его и подтвердите заново.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Понятно'),
+            ),
+          ],
         ),
       );
+      await widget.controller.loadFolders();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
-      }
+      if (mounted) _showFolderMessage(e.toString());
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _folderRequest = false;
+        });
+      }
     }
+  }
+
+  void _showFolderMessage(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<void> _delete() async {
@@ -268,9 +360,12 @@ class _SummaryPageViewState extends State<SummaryPageView> {
   }
 
   void _action(String action) {
+    if (_busy) return;
     if (action == 'template') _changeTemplate();
     if (action == 'copy') copySummaryToClipboard(context, _editor!.summary);
-    if (action == 'folders') _changeFolders();
+    if (action == 'folders') _changeFolders(FolderSelectionMode.replace);
+    if (action == 'add-folder') _changeFolders(FolderSelectionMode.add);
+    if (action == 'move') _changeFolders(FolderSelectionMode.move);
     if (action == 'delete') _delete();
     if (action == 'transcript') {
       Navigator.of(context).push<void>(
@@ -375,6 +470,18 @@ class _SummaryPageViewState extends State<SummaryPageView> {
                         value: 'transcript',
                         child: Text('Исходный транскрипт'),
                       ),
+                      if (widget.sourceFolderId != null &&
+                          editor.summary.folderIds.contains(
+                            widget.sourceFolderId,
+                          ))
+                        const PopupMenuItem(
+                          value: 'move',
+                          child: Text('Переместить'),
+                        ),
+                      const PopupMenuItem(
+                        value: 'add-folder',
+                        child: Text('Добавить в другую папку'),
+                      ),
                       PopupMenuItem(
                         value: 'folders',
                         child: Text('Папки встречи'),
@@ -389,7 +496,26 @@ class _SummaryPageViewState extends State<SummaryPageView> {
             ),
             body: Column(
               children: [
-                if (editor.saving) const LinearProgressIndicator(),
+                if (editor.saving || _folderRequest)
+                  const LinearProgressIndicator(),
+                if (_folderIntent != null && !_editing && !_busy)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 8,
+                    ),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'Изменение папок не подтверждено. Предыдущий выбор сохранён до повтора действия.',
+                        ),
+                        TextButton(
+                          onPressed: () => _changeFolders(_folderIntent!.mode),
+                          child: const Text('Проверить выбор папок'),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (editor.error != null)
                   Semantics(
                     liveRegion: true,

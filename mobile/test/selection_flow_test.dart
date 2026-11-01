@@ -139,7 +139,16 @@ void main() {
         operations: operations,
         client: MockClient((r) async {
           if (r.url.path.endsWith('/folders')) return response({'items': []});
-          return server.handle(r);
+          final result = await server.handle(r);
+          if (r.method == 'GET' &&
+              r.url.path.endsWith('/summaries/summary') &&
+              server.acceptedId == null) {
+            return response({
+              ...jsonDecode(result.body) as Json,
+              'version': 'original-version',
+            });
+          }
+          return result;
         }),
       );
       final controller = MeetingController(api, MemoryStore());

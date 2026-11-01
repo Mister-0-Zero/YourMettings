@@ -150,7 +150,10 @@ void main() {
     final c = create(
       server,
       OperationStore(),
-      original: MeetingSummary.fromJson(server.summary()),
+      original: MeetingSummary.fromJson({
+        ...server.summary(),
+        'version': 'original-version',
+      }),
     );
     await c.initialize();
     await c.editActive(title: 'Meeting', content: '## Local edit');

@@ -198,6 +198,14 @@ void main() {
       final api = ApiClient(
         Uri.parse('http://localhost/api/v1/'),
         client: MockClient((r) async {
+          if (r.url.path == '/api/v1/folders') {
+            return response({
+              'items': [
+                {'id': 'f1', 'name': 'Первая'},
+                {'id': 'f2', 'name': 'Вторая'},
+              ],
+            });
+          }
           if (r.url.path.endsWith('/transcripts/t1')) {
             return response({
               'id': 't1',
@@ -218,6 +226,7 @@ void main() {
             expect(r.url.path, '/api/v1/summaries/s1/folders');
             expect(jsonDecode(r.body), {
               'folder_ids': ['f1', 'f2'],
+              'expected_folder_ids': ['f1'],
             });
             puts++;
             current = {

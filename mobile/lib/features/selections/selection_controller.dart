@@ -31,6 +31,7 @@ class SelectionController extends ChangeNotifier {
   bool busy = false, disposed = false, paused = false, terminal = false;
   Timer? _timer;
   bool _retryNetwork = false;
+  bool _baselineConflict = false;
   bool _pollAllowed = true;
   int _failures = 0;
   Duration _pollDelay = const Duration(seconds: 2);
@@ -168,6 +169,7 @@ class SelectionController extends ChangeNotifier {
       await _accept();
       return;
     }
+    _checkOriginalVersion();
     await _refresh();
     if (terminal) return;
     if (hasPending) {
@@ -194,6 +196,21 @@ class SelectionController extends ChangeNotifier {
     // Acknowledged source remains in the draft until confirmed accept/cancel.
     await _save();
     session = result;
+  }
+
+  void _checkOriginalVersion() {
+    // Frozen accept/cancel recovery must replay its original durable intent.
+    if (frozen || original == null) return;
+    final shownVersion = _originalBase?['version'] ?? original!.version;
+    if (shownVersion == null || shownVersion != state['summary_version']) {
+      terminal = true;
+      _baselineConflict = true;
+      throw const ApiException(
+        'selection_baseline_conflict',
+        'Встреча изменилась до открытия выбора шаблона. Отмените этот выбор и вернитесь к актуальному документу. Локальные правки сохранены; генерация и сохранение заблокированы.',
+        statusCode: 409,
+      );
+    }
   }
 
   Future<void> _refresh() async {
@@ -255,6 +272,7 @@ class SelectionController extends ChangeNotifier {
 
   Future<void> generate(ProcessingOptions options) => _run(() async {
     if (frozen || terminal) return;
+    _checkOriginalVersion();
     if (!hasPending) await _prepareCandidate(options.toJson());
     await _sendCandidate();
   });
@@ -270,6 +288,7 @@ class SelectionController extends ChangeNotifier {
         await _accept();
         return;
       }
+      _checkOriginalVersion();
       if (hasPending) await _sendCandidate();
       await _refresh();
     });
@@ -287,7 +306,9 @@ class SelectionController extends ChangeNotifier {
       await _cancel();
       return;
     }
+    if (terminal && !frozen) return;
     if (!ready && !frozen) return;
+    _checkOriginalVersion();
     if (showingOriginal && !frozen) {
       state = {
         ...state,
@@ -446,10 +467,12 @@ class SelectionController extends ChangeNotifier {
   }
 
   Future<void> _cancel() async {
-    if (!terminal && state['key'] != null) {
+    // A local baseline block does not mean that the server session is closed.
+    if ((!terminal || _baselineConflict) && state['key'] != null) {
       await _ensureSession();
       await _save();
       await api.cancelSelection(state['session_id'] as String);
+      _baselineConflict = false;
     }
     if (state['keep_original'] == true && original != null) {
       accepted = await _applyEdits(
@@ -501,7 +524,10 @@ class SelectionController extends ChangeNotifier {
         ++_failures,
         minimum: e is ApiException ? e.retryAfter : null,
       );
-      if (e is ApiException &&
+      if (e is ApiException && e.code == 'selection_baseline_conflict') {
+        terminal =
+            true; // Keep all edits/checkpoints until explicit cancellation.
+      } else if (e is ApiException &&
           ['summary_version_conflict', 'source_conflict'].contains(e.code)) {
         error = 'Встреча изменена в другом редакторе. Вернитесь к актуальному документу и откройте новый выбор шаблона.';
         // A definite original PATCH conflict requires explicit consent and a new CAS.
@@ -513,6 +539,7 @@ class SelectionController extends ChangeNotifier {
         await _save();
       } else if (e is ApiException && e.statusCode == 410) {
         terminal = true;
+        _baselineConflict = false;
         state = {...state, 'accept_id': null};
         await _save();
         error = 'Срок выбора истёк. Исходный текст сохранён; отмените этот выбор и начните заново.';
@@ -529,7 +556,7 @@ class SelectionController extends ChangeNotifier {
           _pollAllowed &&
           !paused &&
           accepted == null &&
-          !terminal &&
+          (!terminal || _baselineConflict && state['cancel_pending'] == true) &&
           (generating ||
               hasPending ||
               frozen ||
@@ -548,7 +575,10 @@ class SelectionController extends ChangeNotifier {
 
   void resume() {
     paused = false;
-    if (accepted == null && !terminal) unawaited(refresh());
+    if (accepted == null &&
+        (!terminal || _baselineConflict && state['cancel_pending'] == true)) {
+      unawaited(refresh());
+    }
   }
 
   @override

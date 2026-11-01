@@ -229,6 +229,7 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
   final List<MeetingSummary> _items = [];
   int _total = 0;
   bool _loading = false;
+  Completer<void>? _pageLoad;
   bool _deleting = false;
   bool _creating = false;
   String? _error;
@@ -242,7 +243,15 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
   }
 
   Future<void> _load({bool reset = false}) async {
-    if (_loading) return;
+    if (!mounted) return;
+    if (_loading) {
+      if (reset) {
+        await _pageLoad?.future;
+        if (mounted) await _load(reset: true);
+      }
+      return;
+    }
+    final completed = _pageLoad = Completer<void>();
     setState(() {
       _loading = true;
       _error = null;
@@ -261,18 +270,27 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
+      _pageLoad = null;
       if (mounted) setState(() => _loading = false);
+      completed.complete();
     }
   }
 
-  Future<void> _open(MeetingSummary summary) async {
+  Future<void> _open(
+    MeetingSummary summary, {
+    FolderSelectionMode? action,
+  }) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) =>
-            SummaryPageView(controller: widget.controller, summary: summary),
+        builder: (_) => SummaryPageView(
+          controller: widget.controller,
+          summary: summary,
+          sourceFolderId: widget.folder.id,
+          initialFolderAction: action,
+        ),
       ),
     );
-    await _load(reset: true);
+    if (mounted) await _refresh();
   }
 
   Folder? get _currentFolder {
@@ -400,7 +418,20 @@ class _FolderContentsPageState extends State<FolderContentsPage> {
                   child: ListTile(
                     title: Text(item.title),
                     subtitle: Text(_date(item.createdAt)),
-                    trailing: const Icon(Icons.chevron_right),
+                    trailing: PopupMenuButton<FolderSelectionMode>(
+                      tooltip: 'Папки встречи «${item.title}»',
+                      onSelected: (action) => _open(item, action: action),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: FolderSelectionMode.move,
+                          child: Text('Переместить'),
+                        ),
+                        PopupMenuItem(
+                          value: FolderSelectionMode.add,
+                          child: Text('Добавить в другую папку'),
+                        ),
+                      ],
+                    ),
                     onTap: () => _open(item),
                   ),
                 ),

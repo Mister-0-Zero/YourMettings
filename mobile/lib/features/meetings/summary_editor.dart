@@ -201,7 +201,9 @@ class SummaryEditor extends ChangeNotifier {
   }
 
   void setFolders(MeetingSummary updated) {
-    summary = updated;
+    // A folder response may include an external content edit. Keep the CAS
+    // baseline paired with the content actually loaded in this editor.
+    summary = summary.withFolderIds(updated.folderIds);
     _notify();
   }
 

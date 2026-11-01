@@ -176,12 +176,16 @@ class ApiClient {
   );
   Future<MeetingSummary> setSummaryFolders(
     String id,
-    List<String> folderIds,
-  ) async => MeetingSummary.fromJson(
+    List<String> folderIds, {
+    List<String>? expectedFolderIds,
+  }) async => MeetingSummary.fromJson(
     await _request(
       'PUT',
       'summaries/$id/folders',
-      body: {'folder_ids': folderIds},
+      body: {
+        'folder_ids': folderIds,
+        'expected_folder_ids': ?expectedFolderIds,
+      },
     ),
   );
   Future<void> deleteSummary(String id) async {

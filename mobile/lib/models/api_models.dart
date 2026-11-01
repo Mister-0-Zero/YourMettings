@@ -88,6 +88,21 @@ class MeetingSummary {
   final Json? templateSnapshot;
   final String? version;
   final Json? generationOptions;
+
+  /// Folder responses must not advance the editor's content/version baseline.
+  MeetingSummary withFolderIds(List<String> ids) => MeetingSummary(
+    id: id,
+    transcriptId: transcriptId,
+    title: title,
+    content: content,
+    folderIds: List.unmodifiable(ids),
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+    navigation: navigation,
+    templateSnapshot: templateSnapshot,
+    version: version,
+    generationOptions: generationOptions,
+  );
   factory MeetingSummary.fromJson(Json json) => MeetingSummary(
     id: json['id'] as String,
     transcriptId: json['transcript_id'] as String,

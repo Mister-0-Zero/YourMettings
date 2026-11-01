@@ -19,6 +19,16 @@ import 'package:your_mettings/features/meetings/visual_editor.dart';
 
 import 'selection_recovery_test.dart' show Server, response;
 
+class MultiFolderServer extends Server {
+  List<String> folderIds = ['folder', 'other'];
+  @override
+  Map<String, dynamic> summary() => {
+    ...super.summary(),
+    'folder_ids': List<String>.of(folderIds),
+    'version': acceptedId == null ? 'original-version' : 'latest-version',
+  };
+}
+
 void main() {
   for (final dark in [false, true]) {
     testWidgets(
@@ -26,7 +36,7 @@ void main() {
       (tester) async {
         final fixture = File('test/fixtures/template_short_real_2026-10-23.md')
             .readAsStringSync();
-        final server = Server()..content = '**Original bold**';
+        final server = MultiFolderServer()..content = '**Original bold**';
         var queued = true;
         final api = ApiClient(
           Uri.parse('http://localhost/api/v1/'),
@@ -36,6 +46,8 @@ void main() {
               return response({
                 'items': [
                   {'id': 'folder', 'name': 'Project', 'children': []},
+                  {'id': 'other', 'name': 'Other', 'children': []},
+                  {'id': 'third', 'name': 'Third', 'children': []},
                 ],
               });
             }
@@ -206,6 +218,9 @@ void main() {
         await tester.tap(find.text('Применить'));
         await tester.pumpAndSettle();
         expectAccent(tester, 'Релиз API', color);
+        // Folder membership can change while comparing templates without
+        // changing content CAS. Acceptance must preserve the current links.
+        server.folderIds = ['folder', 'other', 'third'];
         await tester.tap(find.byTooltip('Сохранить встречу'));
         await tester.pumpAndSettle();
         expect(find.byType(SelectionPage), findsNothing);
@@ -223,6 +238,15 @@ void main() {
           (r) => r.url.path.endsWith('/accept'),
         );
         expect(accept.body, contains('content'));
+        expect(accept.body, isNot(contains('folder_ids')));
+        expect(server.calls.where((r) => r.method == 'PUT'), isEmpty);
+        expect(
+          tester
+              .widget<SummaryPageView>(find.byType(SummaryPageView))
+              .summary
+              .folderIds,
+          unorderedEquals(['folder', 'other', 'third']),
+        );
         expect(appearance.colorDocumentBold, isTrue);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());

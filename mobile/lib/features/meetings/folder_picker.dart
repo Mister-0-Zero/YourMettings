@@ -180,31 +180,72 @@ class _CreateFolderDialogState extends State<_CreateFolderDialog> {
   );
 }
 
+enum FolderSelectionMode { replace, add, move }
+
 Future<List<String>?> chooseFolders(
   BuildContext context,
   MeetingController controller,
-  List<String> initial,
-) {
+  List<String> initial, {
+  FolderSelectionMode mode = FolderSelectionMode.replace,
+  String? sourceFolderId,
+  List<String>? suggestedSelection,
+}) {
   // Audio review and the meeting list have different controller instances.
   // Always refresh the API tree when opening a selection, preserving UUIDs.
   unawaited(controller.loadFolders());
   return showModalBottomSheet<List<String>>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => _FolderPicker(controller: controller, initial: initial),
+    builder: (_) => _FolderPicker(
+      controller: controller,
+      initial: initial,
+      mode: mode,
+      sourceFolderId: sourceFolderId,
+      suggestedSelection: suggestedSelection,
+    ),
   );
 }
 
 class _FolderPicker extends StatefulWidget {
-  const _FolderPicker({required this.controller, required this.initial});
+  const _FolderPicker({
+    required this.controller,
+    required this.initial,
+    required this.mode,
+    this.sourceFolderId,
+    this.suggestedSelection,
+  });
   final MeetingController controller;
   final List<String> initial;
+  final FolderSelectionMode mode;
+  final String? sourceFolderId;
+  final List<String>? suggestedSelection;
   @override
   State<_FolderPicker> createState() => _FolderPickerState();
 }
 
 class _FolderPickerState extends State<_FolderPicker> {
-  late final Set<String> _selected = widget.initial.toSet();
+  late final Set<String> _selected = {
+    ...?widget.suggestedSelection,
+    if (widget.suggestedSelection == null &&
+        widget.mode != FolderSelectionMode.move)
+      ...widget.initial,
+    if (widget.mode == FolderSelectionMode.add) ...widget.initial,
+  };
+  bool _locked(String id) => switch (widget.mode) {
+    FolderSelectionMode.add => widget.initial.contains(id),
+    FolderSelectionMode.move => id == widget.sourceFolderId,
+    FolderSelectionMode.replace => false,
+  };
+  String get _heading => switch (widget.mode) {
+    FolderSelectionMode.replace => 'Папки встречи',
+    FolderSelectionMode.add => 'Добавить в другую папку',
+    FolderSelectionMode.move => 'Переместить',
+  };
+  String get _confirm => switch (widget.mode) {
+    FolderSelectionMode.replace => 'Выбрать',
+    FolderSelectionMode.add => 'Добавить',
+    FolderSelectionMode.move => 'Переместить',
+  };
   bool _creating = false;
   Future<void> _create({String? parentId}) async {
     if (_creating) return;
@@ -217,13 +258,25 @@ class _FolderPickerState extends State<_FolderPicker> {
     if (!mounted) return;
     setState(() {
       _creating = false;
-      if (folder != null) _selected.add(folder.id);
+      if (folder != null) {
+        if (widget.mode == FolderSelectionMode.move) _selected.clear();
+        _selected.add(folder.id);
+      }
     });
   }
 
-  void _toggle(String id) => setState(() {
-    if (!_selected.remove(id)) _selected.add(id);
-  });
+  void _toggle(String id) {
+    if (_locked(id)) return;
+    setState(() {
+      if (widget.mode == FolderSelectionMode.move) {
+        _selected
+          ..clear()
+          ..add(id);
+      } else if (!_selected.remove(id)) {
+        _selected.add(id);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) => SafeArea(
@@ -236,9 +289,13 @@ class _FolderPickerState extends State<_FolderPicker> {
           final entries = flattenFolders(controller.folders);
           final knownIds = entries.map((entry) => entry.folder.id).toSet();
           final selectionValid =
+              !controller.loadingFolders &&
+              controller.folderError == null &&
               _selected.isNotEmpty &&
               _selected.length <= 100 &&
-              knownIds.containsAll(_selected);
+              knownIds.containsAll(_selected) &&
+              (widget.mode != FolderSelectionMode.add ||
+                  _selected.difference(widget.initial.toSet()).isNotEmpty);
           return Column(
             children: [
               Padding(
@@ -247,7 +304,7 @@ class _FolderPickerState extends State<_FolderPicker> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Папки встречи',
+                        _heading,
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
@@ -261,6 +318,15 @@ class _FolderPickerState extends State<_FolderPicker> {
                   ],
                 ),
               ),
+              if (widget.mode != FolderSelectionMode.replace)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Text(
+                    widget.mode == FolderSelectionMode.add
+                        ? 'Это одна встреча: изменения будут видны во всех её папках.'
+                        : 'Выберите папку назначения. Связи с остальными папками сохранятся.',
+                  ),
+                ),
               if (controller.loadingFolders) const LinearProgressIndicator(),
               if (controller.folderError != null)
                 Padding(
@@ -275,6 +341,18 @@ class _FolderPickerState extends State<_FolderPicker> {
                     : LayoutBuilder(
                         builder: (context, constraints) => ListView(
                           children: [
+                            for (final id in _selected.difference(knownIds))
+                              CheckboxListTile(
+                                title: const Text(
+                                  'Недоступная папка из прежнего выбора',
+                                ),
+                                subtitle: const Text(
+                                  'Снимите выбор или обновите список папок.',
+                                ),
+                                value: true,
+                                onChanged: (_) =>
+                                    setState(() => _selected.remove(id)),
+                              ),
                             for (final entry in entries)
                               ListTile(
                                 key: ValueKey(
@@ -292,10 +370,20 @@ class _FolderPickerState extends State<_FolderPicker> {
                                       ),
                                   end: 16,
                                 ),
+                                enabled: !_locked(entry.folder.id),
                                 leading: Checkbox(
                                   value: _selected.contains(entry.folder.id),
-                                  onChanged: (_) => _toggle(entry.folder.id),
+                                  onChanged: _locked(entry.folder.id)
+                                      ? null
+                                      : (_) => _toggle(entry.folder.id),
                                 ),
+                                subtitle: _locked(entry.folder.id)
+                                    ? Text(
+                                        widget.mode == FolderSelectionMode.add
+                                            ? 'Уже в этой папке'
+                                            : 'Исходная папка',
+                                      )
+                                    : null,
                                 title: Tooltip(
                                   message: entry.path,
                                   excludeFromSemantics: true,
@@ -304,7 +392,9 @@ class _FolderPickerState extends State<_FolderPicker> {
                                     semanticsLabel: entry.path,
                                   ),
                                 ),
-                                onTap: () => _toggle(entry.folder.id),
+                                onTap: _locked(entry.folder.id)
+                                    ? null
+                                    : () => _toggle(entry.folder.id),
                                 trailing: IconButton(
                                   tooltip: 'Создать подпапку в «${entry.path}»',
                                   onPressed:
@@ -323,7 +413,9 @@ class _FolderPickerState extends State<_FolderPicker> {
               ),
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Row(
+                child: Wrap(
+                  spacing: 8,
+                  alignment: WrapAlignment.end,
                   children: [
                     TextButton.icon(
                       onPressed: _creating || controller.loadingFolders
@@ -332,12 +424,15 @@ class _FolderPickerState extends State<_FolderPicker> {
                       icon: const Icon(Icons.create_new_folder_outlined),
                       label: const Text('Новая папка'),
                     ),
-                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Отмена'),
+                    ),
                     FilledButton(
                       onPressed: selectionValid
                           ? () => Navigator.pop(context, _selected.toList())
                           : null,
-                      child: const Text('Выбрать'),
+                      child: Text(_confirm),
                     ),
                   ],
                 ),

@@ -20,6 +20,18 @@ void main() {
       final api = ApiClient(
         Uri.parse('http://localhost/api/v1/'),
         client: MockClient((request) async {
+          if (request.url.path == '/api/v1/folders') {
+            return http.Response.bytes(
+              utf8.encode(
+                jsonEncode({
+                  'items': [
+                    {'id': 'f1', 'name': 'Проект'},
+                  ],
+                }),
+              ),
+              200,
+            );
+          }
           if (request.method == 'POST') {
             posts++;
             expect(request.url.path, '/api/v1/transcripts/process');
