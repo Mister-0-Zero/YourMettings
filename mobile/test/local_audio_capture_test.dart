@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:crypto/crypto.dart';
 import 'package:queue_owner/queue_owner.dart';
 import 'package:record/record.dart';
 import 'package:your_mettings/features/recording/microphone_capture.dart';
@@ -18,10 +19,19 @@ class _Authority implements QueueAudioAuthority {
   @override
   final scopeId = 'a' * 64;
   int? failAtOffset;
+  Completer<void>? firstAudioEntered, releaseFirstAudio, secondMutationQueued;
+  int _pending = 0;
+  bool _audioGated = false;
   Future<void> _tail = Future.value();
   @override
   Future<T> serialized<T>(Future<T> Function() action) {
-    final task = _tail.then((_) => action());
+    _pending++;
+    if (_pending == 2 &&
+        secondMutationQueued != null &&
+        !secondMutationQueued!.isCompleted) {
+      secondMutationQueued!.complete();
+    }
+    final task = _tail.then((_) => action()).whenComplete(() => _pending--);
     _tail = task.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return task;
   }
@@ -39,8 +49,16 @@ class _Authority implements QueueAudioAuthority {
   @override
   Future<void> eraseDraft(Directory dir) => dir.delete(recursive: true);
   @override
-  Future<void> writeAudio(File file, Uint8List bytes) =>
-      file.writeAsBytes(bytes, flush: true);
+  Future<void> writeAudio(File file, Uint8List bytes) async {
+    if (firstAudioEntered != null && !_audioGated) {
+      _audioGated = true;
+      firstAudioEntered!.complete();
+      await releaseFirstAudio!.future;
+    }
+    if (await file.exists()) throw StateError('Immutable audio exists');
+    await file.writeAsBytes(bytes, flush: true);
+  }
+
   @override
   Future<int> appendPcm(File file, int offset, Uint8List bytes) async {
     final current = await file.exists() ? await file.length() : 0;
@@ -197,7 +215,11 @@ void main() {
     var expectedStart = 0;
     for (final item in (plan['chunks'] as List).cast<Json>()) {
       final bytes = await planner
-          .file(record.localId, item['sequence'] as int)
+          .file(
+            record.localId,
+            item['sequence'] as int,
+            planId: plan['plan_id'] as String,
+          )
           .readAsBytes();
       expect(ascii.decode(bytes.sublist(0, 4)), 'RIFF');
       expect(
@@ -233,8 +255,10 @@ void main() {
         change: (j) => j['state'] = 'ready',
       );
       final planner = AudioWirePlanner(repo, owner);
-      await planner.prepare(record.localId, limits());
-      await planner.file(record.localId, 0).writeAsBytes(Uint8List(32044));
+      final plan = await planner.prepare(record.localId, limits());
+      await planner
+          .file(record.localId, 0, planId: plan['plan_id'] as String)
+          .writeAsBytes(Uint8List(32044));
       await expectLater(
         planner.prepare(record.localId, limits()),
         throwsFormatException,
@@ -302,6 +326,64 @@ void main() {
       await capture.dispose();
     },
   );
+  test('concurrent planners with different limits cannot overwrite the committed WAVs', () async {
+    var record = await draft();
+    final source = File(
+      '${repo.draftDirectory(record.localId).path}/source.pcm',
+    );
+    await source.writeAsBytes(Uint8List(32000 * 5));
+    record = await repo.update(
+      record.localId,
+      expectedRevision: record.revision,
+      change: (j) => j['state'] = 'ready',
+    );
+    owner.firstAudioEntered = Completer<void>();
+    owner.releaseFirstAudio = Completer<void>();
+    owner.secondMutationQueued = Completer<void>();
+    Future<Object> settled(Future<Json> value) =>
+        value.then<Object>((j) => j, onError: (Object error) => error);
+    final first = settled(
+      AudioWirePlanner(repo, owner).prepare(record.localId, limits()),
+    );
+    await owner.firstAudioEntered!.future;
+    final second = settled(
+      AudioWirePlanner(
+        repo,
+        owner,
+      ).prepare(record.localId, limits(target: 2, max: 3, bytes: 96044)),
+    );
+    // Both saw no plan. B's first write is queued while A's first write is held.
+    await owner.secondMutationQueued!.future;
+    owner.releaseFirstAudio!.complete();
+    final results = await Future.wait([first, second]);
+    expect(results.whereType<Json>().length, 1);
+    expect(results.whereType<DraftRevisionConflict>().length, 1);
+    final committed =
+        ((await repo.read(record.localId)).toJson()['checkpoints']
+                as Json)['wire_plan']
+            as Json;
+    final planner = AudioWirePlanner(repo, owner);
+    await planner.verify(record.localId, committed);
+    final reconstructed = BytesBuilder(copy: false);
+    for (final item in (committed['chunks'] as List).cast<Json>()) {
+      final wav = await planner
+          .file(
+            record.localId,
+            item['sequence'] as int,
+            planId: committed['plan_id'] as String,
+          )
+          .readAsBytes();
+      expect(sha256.convert(wav).toString(), item['sha256']);
+      expect(wav.length, item['byte_count']);
+      reconstructed.add(wav.sublist(44));
+    }
+    expect(reconstructed.takeBytes(), await source.readAsBytes());
+    final reopened = await AudioWirePlanner(
+      repo,
+      owner,
+    ).prepare(record.localId, limits(target: 2, max: 3, bytes: 96044));
+    expect(jsonEncode(reopened), jsonEncode(committed));
+  });
   test('template version follows selected template and legacy JSON stays unchanged', () {
     final version = 'b' * 64;
     final options = ProcessingOptions(

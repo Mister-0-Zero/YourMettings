@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -42,9 +43,14 @@ class AudioWirePlanner {
   final LocalDraftRepository repository;
   final QueueAudioAuthority authority;
   static const bytesPerSecond = 32000;
-  File file(String id, int sequence) => File(
-    '${repository.draftDirectory(id).path}/wire-${sequence.toString().padLeft(6, '0')}.wav',
-  );
+  File file(String id, int sequence, {required String planId}) {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(planId)) {
+      throw const FormatException('Invalid wire plan identity');
+    }
+    return File(
+      '${repository.draftDirectory(id).path}/wire-$planId-${sequence.toString().padLeft(6, '0')}.wav',
+    );
+  }
 
   Future<Json> prepare(String id, AudioWireLimits limits) async {
     var record = await repository.read(id);
@@ -71,6 +77,18 @@ class AudioWirePlanner {
       throw const FormatException('Empty/incomplete PCM');
     }
     final sourceSha = (await sha256.bind(source.openRead()).first).toString();
+    final planId = sha256
+        .convert(
+          utf8.encode(
+            jsonEncode({
+              'version': 1,
+              'source_sha256': sourceSha,
+              'source_bytes': length,
+              'limits': limits.toJson(),
+            }),
+          ),
+        )
+        .toString();
     final hard = math.min(
       limits.maxSeconds * bytesPerSecond,
       (limits.maxBytes - 44) ~/ 2 * 2,
@@ -101,9 +119,21 @@ class AudioWirePlanner {
           read += part;
         }
         final hash = sha256.convert(bytes).toString();
-        await authority.serialized(
-          () => authority.writeAudio(file(id, i), bytes),
-        );
+        final targetFile = file(id, i, planId: planId);
+        if (await targetFile.exists()) {
+          // A crash before plan commit can leave complete immutable files.
+          // Reuse only byte-identical files; never overwrite a published WAV.
+          if (await targetFile.length() != bytes.length ||
+              (await sha256.bind(targetFile.openRead()).first).toString() !=
+                  hash) {
+            throw const FormatException('Existing immutable wire bytes differ');
+          }
+        } else {
+          await authority.serialized(
+            () => authority.writeAudio(targetFile, bytes),
+          );
+        }
+
         chunks.add({
           'sequence': i,
           'start_ms': start * 1000 ~/ bytesPerSecond,
@@ -124,6 +154,7 @@ class AudioWirePlanner {
     }
     final plan = <String, dynamic>{
       'version': 1,
+      'plan_id': planId,
       'format': 'wav_pcm_s16le',
       'sample_rate': 16000,
       'channels': 1,
@@ -133,6 +164,13 @@ class AudioWirePlanner {
       'chunks': chunks,
     };
     record = await repository.read(id);
+    if ([
+      'recording',
+      'paused',
+      'capturing',
+    ].contains(record.toJson()['state'])) {
+      throw StateError('Capture resumed during wire preparation');
+    }
     if ((record.toJson()['checkpoints'] as Json)['wire_plan'] != null) {
       throw const DraftRevisionConflict();
     }
@@ -209,7 +247,11 @@ class AudioWirePlanner {
     }
     var expected = 0, end = 0;
     for (final entry in (plan['chunks'] as List).cast<Json>()) {
-      final chunk = file(id, entry['sequence'] as int);
+      final chunk = file(
+        id,
+        entry['sequence'] as int,
+        planId: plan['plan_id'] as String,
+      );
       if (entry['sequence'] != expected++ ||
           entry['source_start'] != end ||
           await chunk.length() != entry['byte_count'] ||

@@ -75,12 +75,13 @@ internal object QueueOwnerBroker {
     fun publish(root: File, scope: String, engine: String, token: String, path: String, temporary: String) {
         val target = ownedPath(root, scope, engine, token, path)
         val tmp = ownedPath(root, scope, engine, token, temporary)
-        val wire = target.name.matches(Regex("wire-[0-9]{6}\\.wav")) &&
+        val wire = target.name.matches(Regex("wire-[a-f0-9]{64}-[0-9]{6}\\.wav")) &&
             target.parentFile?.parentFile == File(root, "scopes/$scope/drafts").canonicalFile &&
             target.parentFile!!.name.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"))
         require((target.name.endsWith(".json") || wire) && tmp.parentFile == target.parentFile)
         require(tmp.name.startsWith(target.name + "." + token + ".") && tmp.name.endsWith(".tmp"))
         check(tmp.isFile)
+        if (wire && target.exists()) throw IOException("Immutable audio already exists")
         // The old engine can finish ONLY its uniquely named tmp. Publishing is
         // atomic with checking its token and with releasing/acquiring ownership.
         if (!tmp.renameTo(target)) throw IOException("Atomic manifest replacement failed")

@@ -69,6 +69,11 @@ class LocalAudioCapture {
       localId,
       expectedRevision: current.revision,
       change: (json) {
+        if (phase == 'capturing' &&
+            ((json['checkpoints'] as Json)['wire_plan'] != null ||
+                (json['requests'] as Json).isNotEmpty)) {
+          throw StateError('Draft became frozen before capture started');
+        }
         json['state'] = phase;
         (json['checkpoints'] as Json)['capture'] = {
           'format': 'pcm_s16le',

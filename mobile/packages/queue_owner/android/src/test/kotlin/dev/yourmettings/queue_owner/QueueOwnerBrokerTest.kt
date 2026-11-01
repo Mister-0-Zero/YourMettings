@@ -105,5 +105,19 @@ class QueueOwnerBrokerTest {
             assertEquals("keep", manifest.readText())
         } finally { QueueOwnerBroker.releaseEngine("capture"); root.deleteRecursively() }
     }
+    @Test fun publishedWireCannotBeReplacedEvenByCurrentOwner() {
+        val root = Files.createTempDirectory("ym-wire-").toFile()
+        val id = "12345678-1234-1234-1234-123456789abc"
+        try {
+            val token = QueueOwnerBroker.acquire(root, scope, "planner")!!
+            val directory = java.io.File(root, "scopes/$scope/drafts/$id"); directory.mkdirs()
+            val target = java.io.File(directory, "wire-${"c".repeat(64)}-000000.wav")
+            val first = java.io.File(directory, "${target.name}.$token.first.tmp"); first.writeBytes(byteArrayOf(1, 2, 3, 4))
+            QueueOwnerBroker.publish(root, scope, "planner", token, target.path, first.path)
+            val second = java.io.File(directory, "${target.name}.$token.second.tmp"); second.writeBytes(byteArrayOf(9, 8))
+            assertThrows(java.io.IOException::class.java) { QueueOwnerBroker.publish(root, scope, "planner", token, target.path, second.path) }
+            assertArrayEquals(byteArrayOf(1, 2, 3, 4), target.readBytes())
+        } finally { QueueOwnerBroker.releaseEngine("planner"); root.deleteRecursively() }
+    }
 
 }
