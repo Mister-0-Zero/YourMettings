@@ -1,6 +1,6 @@
 # Flutter: offline и automatic — контракт следующей реализации
 
-01.11.2026. **Реализовано в изолированном clone, 448 тестов прошли, ожидает финального ревью; не развёрнуто.** Код находится в `C:/Users/Алексей/Documents/Codex/work/YourMettings-backend-offline`, branch backend. D: и USB runtime пока содержат только папки (1f7f23d/459d39f, schema0010). До итогового ревью не использовать новые поля/endpoints против USB baseline.
+01.11.2026. **BACKEND AUTOMATIC READY:** код **faf09db**, branch backend,448 тестов, USB runtime127.0.0.1:8001/schema0011 обновлён и real synthetic ASR/Qwen/restart проверен. Срок USB доступа прежний: **01.11.2026 17:07:46 МСК**, public8000 закрыт. [Deployment checkpoint](WORK_REPORT_2026-11-01_offline-deploy.md). Рабочий runtime D:/programming/VSCode/project/YourMettings; изолированный development clone C:/Users/Алексей/Documents/Codex/work/YourMettings-backend-offline.
 
 ## Создание и polling
 
@@ -69,7 +69,7 @@ Boundary warnings требуют реального просмотра и сущ
 - Repair обновляет публичные parameters без внутренних snapshot/job полей. `{}` при исчезнувшей папке сохраняет needs_input/folders_unavailable с202 без генерации; явное исправление — новый ключ/parameters. Нет capacity→429 generation_busy.
 - Cancel до ASR сохраняет payload, но закрывает дозагрузку/complete/ASR retry (409 pipeline_cancelled); можно DELETE и начать новую запись новым ключом. Cancel после готового source допускает явный pipeline retry без повторной ASR.
 - Automatic text: существующий POST /transcripts/process, без processing_mode; optional expected_template_version в ProcessInput предотвращает незаметную замену кешированного шаблона. Review text остаётся через прежний selection flow.
-- До deployment не отправлять новые поля на USB baseline. Новый сервер требует schema0011 и один dispatcher, старый продолжает отвечать по опубликованному folder контракту.
+- USB runtime уже на schema0011 и поддерживает новые поля/endpoints; работает один dispatcher. Внешний HTTPS не продлён, сверять ограниченный срок USB доступа.
 
 
 ## Потерянный create ACK и новые правки — закрытый контракт
@@ -81,4 +81,9 @@ Boundary warnings требуют реального просмотра и сущ
 5. Snapshot обновляется сервером, chunks и их ASR не переписываются. Create hash/ID прежние. Отсутствующая папка/шаблон404, template_version_conflict409; rejected validation ключ не занимает. Режим automatic/review этот PUT не меняет.
 6. PUT parameters и POST retry используют одну область pipeline-ключей, но fingerprint включает operation name: переиспользование ключа в другом endpoint409 **idempotency_conflict**. Разным операциям — разные ключи.
 
-Эта операция реализована в clone; до общего rollout USB baseline её не поддерживает.
+Эта операция опубликована в faf09db и поддерживается обновлённым USB runtime schema0011.
+
+
+## Fixture для мобильной приёмки
+
+Локальный synthetic Windows Russian TTS: `C:/Users/Алексей/Documents/ChatGPT/YourMettings/offline-synthetic.wav`, WAV PCM mono16000Hz/16-bit,21.630с,692206байт. В Git не добавлен. Проверен реальными GigaAM/Qwen; использовать только этот синтетический материал, не пользовательские встречи.

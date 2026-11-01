@@ -1,6 +1,6 @@
 # YourMettings: подключение Flutter к backend
 
-Новый offline/automatic контракт реализован в отдельном clone, ещё не развёрнут: [FLUTTER_OFFLINE_PIPELINE_HANDOFF.md](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md). На USB baseline пока только опубликованные папки.
+Новый offline/automatic контракт faf09db развёрнут на USB/schema0011 до01.11.2026 17:07:46 МСК: [FLUTTER_OFFLINE_PIPELINE_HANDOFF.md](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md).
 
 Доработка размещений от 01.11.2026 (одобрена к публикации; runtime сверять с deployment checkpoint): [FLUTTER_FOLDERS_HANDOFF.md](FLUTTER_FOLDERS_HANDOFF.md).
 

@@ -1,0 +1,21 @@
+{
+  "backend_commit": "faf09db",
+  "schema": "0011",
+  "real_asr_then_automatic_qwen": true,
+  "queued_job_survived_backend_restart": true,
+  "same_job_and_source": true,
+  "delivery_count": 1,
+  "no_repeated_asr": true,
+  "one_saved_summary": true,
+  "lost_create_ack_no_duplicate": true,
+  "cancel_without_confirm": 422,
+  "cancel_repeat": 200,
+  "delete_repeat": 204,
+  "deleted_get": 404,
+  "old_create_after_delete": 410,
+  "launcher_repeat_no_duplicate": true,
+  "usb_expiry_unchanged": "2026-11-01T14:07:46.381669+00:00",
+  "public_target_8000_unbound": true,
+  "user_data_modified": false,
+  "synthetic_data_cleaned": true
+}

@@ -1068,7 +1068,7 @@ GET известной закрытой Selection →200 cancelled/expired; GET 
 
 ## Durable Qwen и opt-in automatic — 01.11.2026
 
-**Статус этой ревизии:** реализовано в изолированном backend clone, ожидает совместного ревью. Требует аддитивной миграции **0011** и запуска нового dispatcher, а также обновления backend/ASR-worker. Работающий USB baseline папок остаётся на схеме0010; новые поля/endpoints туда ещё не развёрнуты. [Flutter handoff](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md) и [отчёт реализации](WORK_REPORT_2026-11-01_offline-pipeline.md).
+**Статус этой ревизии:** реализация **faf09db** опубликована и развёрнута на USB127.0.0.1:8001, схема **0011**, backend/ASR/dispatcher обновлены, real synthetic ASR→Qwen→saved Summary и restart smoke прошли. USB доступ ограничен прежним сроком **01.11.2026 17:07:46 МСК**, public8000 закрыт. [Deployment checkpoint](WORK_REPORT_2026-11-01_offline-deploy.md). [Flutter handoff](FLUTTER_OFFLINE_PIPELINE_HANDOFF.md) и [отчёт реализации](WORK_REPORT_2026-11-01_offline-pipeline.md).
 
 ### Явный режим и snapshot
 

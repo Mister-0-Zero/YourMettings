@@ -1,0 +1,18 @@
+{
+  "backend_commit": "faf09db",
+  "schema": "0011",
+  "transport": "usb-loopback",
+  "real_asr": true,
+  "real_qwen": true,
+  "synthetic_audio_bytes": 692206,
+  "source_characters": 242,
+  "summary_characters": 1751,
+  "missing_folder_needs_input": true,
+  "repair_retry": 202,
+  "same_retry_receipt": 200,
+  "automatic_summary_saved": true,
+  "asr_not_repeated_on_retry": true,
+  "one_summary": true,
+  "no_manual_accept": true,
+  "synthetic_data_cleaned": true
+}

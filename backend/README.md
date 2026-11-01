@@ -1,8 +1,8 @@
 # Backend YourMettings
 
-## Durable Qwen / automatic (код 01.11.2026, до deployment review)
+## Durable Qwen / automatic (USB rollout 01.11.2026)
 
-Новая реализация находится в изолированной копии; текущий USB baseline D: не обновлён. До согласованного deployment не применять production-миграцию и не запускать второй набор сервисов рядом с ним. Контракт и rollout ограничения: [API_CONTRACT.md](../docs/API_CONTRACT.md#durable-qwen-и-opt-in-automatic--01112026), [Flutter handoff](../docs/FLUTTER_OFFLINE_PIPELINE_HANDOFF.md), [отчёт](../docs/WORK_REPORT_2026-11-01_offline-pipeline.md).
+Код faf09db и schema0011 установлены в D:, USB backend127.0.0.1:8001/ASR/dispatcher готовы;448 тестов и реальные synthetic ASR/Qwen/restart прошли. Текущий bounded USB доступ до01.11.2026 17:07:46 МСК, внешний demo не продлён. Не запускать второй набор рядом и не обходить истёкшую публичную .env. [Итог запуска](../docs/WORK_REPORT_2026-11-01_offline-deploy.md). Контракт и rollout ограничения: [API_CONTRACT.md](../docs/API_CONTRACT.md#durable-qwen-и-opt-in-automatic--01112026), [Flutter handoff](../docs/FLUTTER_OFFLINE_PIPELINE_HANDOFF.md), [отчёт](../docs/WORK_REPORT_2026-11-01_offline-pipeline.md).
 
 После разрешённой установки: schema0011, затем штатный start-dev.ps1/ярлык проверяет PostgreSQL, Ollama, ASR, **один Qwen dispatcher**, FastAPI. Модели не скачиваются. Ручной запуск dispatcher из backend: `.venv\Scripts\python.exe scripts\qwen_worker.py` в правильно настроенном окружении. Второй dispatcher на той же БД завершится без работы: singleton advisory lock. Повтор launcher не дублирует worker.
 

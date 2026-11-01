@@ -1,0 +1,28 @@
+{
+  "implementation_commit": "faf09db",
+  "schema": "0011",
+  "origin": "http://127.0.0.1:8001",
+  "backend_pid": 35768,
+  "asr_pid": 14152,
+  "qwen_dispatcher_pid": 10784,
+  "asr_ready": true,
+  "dispatcher_ready": true,
+  "health": 200,
+  "auth_me": 200,
+  "active_jobs": 0,
+  "usb_expiry_utc": "2026-11-01T14:07:46.381669+00:00",
+  "public_8000_unbound": true,
+  "existing_business_table_fingerprints_preserved": true,
+  "backup_archive_verified": true,
+  "fixture": {
+    "format": "WAV PCM",
+    "channels": 1,
+    "sample_rate_hz": 16000,
+    "bits_per_sample": 16,
+    "frames": 346080,
+    "duration_seconds": 21.63,
+    "bytes": 692206,
+    "path": "C:\\Users\\Алексей\\Documents\\ChatGPT\\YourMettings\\offline-synthetic.wav",
+    "synthetic_windows_tts": true
+  }
+}

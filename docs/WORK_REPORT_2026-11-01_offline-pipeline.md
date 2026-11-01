@@ -1,5 +1,7 @@
 # Отчёт: durable Qwen и автоматическая аудиовстреча
 
+Последующий разрешённый rollout **выполнен**: [USB deployment/schema0011 и real smoke](WORK_REPORT_2026-11-01_offline-deploy.md). Ниже сохранён review checkpoint до запуска.
+
 **01.11.2026, Москва.** Ветка backend, отдельный clone `C:/Users/Алексей/Documents/Codex/work/YourMettings-backend-offline`, база сравнения **459d39f**. Этап реализован и проверен, готов к независимому финальному ревью. **Production-миграция0011, push и deployment этого этапа не выполнялись; подготовлен локальный review checkpoint.** D:/programming/VSCode/project/YourMettings остаётся на проверенном folder baseline; его процесс, .env и публичный доступ не изменялись.
 
 ## Реализованный вертикальный срез
