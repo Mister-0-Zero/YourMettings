@@ -1,6 +1,11 @@
 import 'services/recorder_context.dart';
+import 'services/drafts/draft_workspace.dart';
+import 'features/recording/draft_recorder_coordinator.dart';
+
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -39,6 +44,8 @@ class _BootstrapState extends State<_Bootstrap> {
   RecorderCoordinator? _recorder;
   AudioReviewController? _review;
   AudioDraftRepository? _drafts;
+  DraftWorkspace? _localDrafts;
+  DraftRecorderCoordinator? _localRecorder;
   bool _switching = false;
   String? _graphError;
   late final Future<void> _startup = _start();
@@ -58,6 +65,11 @@ class _BootstrapState extends State<_Bootstrap> {
       if (current?.scopeId == next.scopeId && current?.base == next.base) {
         return null;
       }
+      if (_localRecorder?.recording == true ||
+          _localRecorder?.busy == true ||
+          await FlutterForegroundTask.isRunningService) {
+        return 'Сначала завершите текущую запись. Остальные черновики сохранятся в этом подключении.';
+      }
       if (_recorder?.active == true ||
           _recorder?.busy == true ||
           _recorder?.handoffPending == true) {
@@ -70,6 +82,8 @@ class _BootstrapState extends State<_Bootstrap> {
     };
     settings.onApply = (next, same) async {
       if (same && _controller != null && _graphError == null) {
+        await _localRecorder?.foreground();
+        unawaited(_localDrafts?.refreshCatalogs());
         await _recorder?.foreground();
         return;
       }
@@ -80,6 +94,12 @@ class _BootstrapState extends State<_Bootstrap> {
   }
 
   Future<void> _closeGraph() async {
+    await _localRecorder?.close();
+    await _localDrafts?.drain();
+    _localRecorder?.dispose();
+    _localDrafts?.dispose();
+    _localRecorder = null;
+    _localDrafts = null;
     final controller = _controller;
     if (controller != null) {
       await controller.store.save(controller.recovery);
@@ -105,6 +125,7 @@ class _BootstrapState extends State<_Bootstrap> {
         _graphError = null;
       });
     }
+    var stage = 'close';
     try {
       await _closeGraph();
       // No migration from unscoped legacy/personal files. A new verified identity
@@ -120,12 +141,34 @@ class _BootstrapState extends State<_Bootstrap> {
         connection: binding,
         operations: operations,
       );
+      final localDrafts = DraftWorkspace(
+        directory: directory,
+        connection: binding,
+        api: api,
+      );
+      _localDrafts = localDrafts;
+      // No legacy UI controller exists yet. A running FGS keeps audio ownership.
+      stage = 'local-drafts';
+      await localDrafts.initialize(
+        legacyTextOwnerStopped: true,
+        legacyAudioOwnerStopped: !await FlutterForegroundTask.isRunningService,
+      );
       final controller = MeetingController(
         api,
-        FileRecoveryStore(File('${directory.path}/meeting-recovery.json')),
+        localDrafts.legacyTextHandoffPending
+            ? _PendingHandoffRecoveryStore()
+            : FileRecoveryStore(
+                File('${directory.path}/meeting-recovery.json'),
+              ),
       );
+      stage = 'legacy-text';
+      try {
+        await controller.initialize();
+      } catch (_) {
+        controller.dispose();
+        rethrow;
+      }
       _controller = controller;
-      await controller.initialize();
       final drafts = AudioDraftRepository(
         file: File('${directory.path}/audio-drafts.json'),
       );
@@ -142,11 +185,33 @@ class _BootstrapState extends State<_Bootstrap> {
         recorder,
         drafts: drafts,
       );
+      stage = 'legacy-review';
+      try {
+        await review.initialize();
+      } catch (_) {
+        review.dispose();
+        rethrow;
+      }
       _review = review;
-      await review.initialize();
-      await recorder.initialize();
-      await review.recoverHandoffs();
-    } catch (_) {
+      stage = 'legacy-recorder';
+      try {
+        await recorder.initialize();
+      } catch (_) {
+        localDrafts.reportLegacyError();
+      }
+      // Network recovery must never gate local cold launch.
+      unawaited(
+        review.recoverHandoffs().catchError((Object _) {
+          localDrafts.reportLegacyError();
+        }),
+      );
+      final localRecorder = DraftRecorderCoordinator(localDrafts);
+      _localRecorder = localRecorder;
+      stage = 'local-recorder';
+      await localRecorder.initialize();
+      unawaited(localDrafts.refreshCatalogs());
+    } catch (error) {
+      debugPrint('LocalGraph: stage=$stage type=${error.runtimeType}');
       _graphError = 'Не удалось открыть данные этого подключения. Они сохранены; повторите подключение.';
       rethrow;
     } finally {
@@ -156,6 +221,8 @@ class _BootstrapState extends State<_Bootstrap> {
 
   @override
   void dispose() {
+    _localRecorder?.dispose();
+    _localDrafts?.dispose();
     _review?.dispose();
     _recorder?.dispose();
     _drafts?.dispose();
@@ -208,6 +275,44 @@ class _BootstrapState extends State<_Bootstrap> {
           audioReview: _review,
           drafts: _drafts,
           connectionSettings: settings,
+          localDrafts: _localDrafts,
+          localRecorder: _localRecorder,
+        );
+      }
+      if (settings.active != null) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: appearance.theme(Brightness.light),
+          darkTheme: appearance.theme(Brightness.dark),
+          themeMode: appearance.themeMode,
+          home: Scaffold(
+            appBar: AppBar(title: const Text('Локальные данные')),
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _graphError ?? 'Не удалось открыть сохранённые данные. Они не удалены.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: () async {
+                        try {
+                          await _replaceGraph(settings.active!);
+                        } catch (_) {
+                          /* Error remains visible. */
+                        }
+                      },
+                      child: const Text('Повторить открытие'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         );
       }
       return MaterialApp(
@@ -219,4 +324,16 @@ class _BootstrapState extends State<_Bootstrap> {
       );
     },
   );
+}
+
+// A failed local handoff must not let a freshly created legacy controller clear
+// or edit the authoritative source before recovery finishes on the next launch.
+class _PendingHandoffRecoveryStore implements RecoveryStore {
+  RecoveryState _value = RecoveryState();
+  @override
+  Future<RecoveryState> load() async => _value;
+  @override
+  Future<void> save(RecoveryState state) async {
+    _value = state;
+  }
 }

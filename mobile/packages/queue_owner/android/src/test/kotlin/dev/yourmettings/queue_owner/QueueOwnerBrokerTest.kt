@@ -119,5 +119,35 @@ class QueueOwnerBrokerTest {
             assertArrayEquals(byteArrayOf(1, 2, 3, 4), target.readBytes())
         } finally { QueueOwnerBroker.releaseEngine("planner"); root.deleteRecursively() }
     }
+    @Test fun captureTicketSurvivesEngineHandoffAndStaleOwnerCannotClearIt() {
+        val root = Files.createTempDirectory("ym-ticket-").toFile()
+        val id = "12345678-1234-1234-1234-123456789abc"
+        val nonce = "12345678-1234-1234-1234-123456789def"
+        try {
+            val ui = QueueOwnerBroker.acquire(root, scope, "ui")!!
+            val draft = java.io.File(root,"scopes/$scope/drafts/$id"); draft.mkdirs()
+            java.io.File(draft,"draft.json").writeText("{}")
+            QueueOwnerBroker.writeCaptureTicket(root,scope,"ui",ui,id,nonce)
+            QueueOwnerBroker.releaseEngine("ui")
+            assertEquals(mapOf("scope" to scope,"local_id" to id,"nonce" to nonce),QueueOwnerBroker.captureTicket(root))
+            val service = QueueOwnerBroker.acquire(root,scope,"fgs")!!
+            assertThrows(IllegalStateException::class.java) { QueueOwnerBroker.clearCaptureTicket(root,scope,"ui",ui,nonce) }
+            QueueOwnerBroker.clearCaptureTicket(root,scope,"fgs",service,"12345678-1234-1234-1234-123456789aaa")
+            assertNotNull(QueueOwnerBroker.captureTicket(root))
+            QueueOwnerBroker.clearCaptureTicket(root,scope,"fgs",service,nonce)
+            assertNull(QueueOwnerBroker.captureTicket(root))
+        } finally { QueueOwnerBroker.releaseEngine("ui");QueueOwnerBroker.releaseEngine("fgs");root.deleteRecursively() }
+    }
+    @Test fun captureTicketRejectsMissingDraftAndCorruptPointerWithoutScopeEscape() {
+        val root = Files.createTempDirectory("ym-ticket-corrupt-").toFile()
+        try {
+            val ui=QueueOwnerBroker.acquire(root,scope,"ui")!!
+            assertThrows(IllegalArgumentException::class.java) { QueueOwnerBroker.writeCaptureTicket(root,scope,"ui",ui,"../bad","12345678-1234-1234-1234-123456789def") }
+            assertNull(QueueOwnerBroker.captureTicket(root))
+            java.io.File(root,"capture-ticket.v1").writeText("../other\nbad\nnonce\n")
+            assertThrows(IllegalArgumentException::class.java) { QueueOwnerBroker.captureTicket(root) }
+            assertTrue(java.io.File(root,"capture-ticket.v1").exists())
+        } finally { QueueOwnerBroker.releaseEngine("ui");root.deleteRecursively() }
+    }
 
 }

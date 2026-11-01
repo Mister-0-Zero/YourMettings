@@ -6,6 +6,7 @@ import 'package:queue_owner/queue_owner.dart';
 import 'package:record/record.dart';
 
 import '../../features/recording/microphone_capture.dart';
+import '../../features/recording/audio_meter.dart';
 import '../../models/api_models.dart';
 import 'draft_record.dart';
 import 'draft_repository.dart';
@@ -20,6 +21,7 @@ class LocalAudioCapture {
     required this.authority,
     required this.microphone,
     this.changed,
+    this.meterChanged,
     this.maxSeconds = 4 * 60 * 60,
   }) {
     if (repository.authority != authority || maxSeconds < 1) {
@@ -32,6 +34,8 @@ class LocalAudioCapture {
   final String localId;
   final MicrophoneCapture microphone;
   final void Function(Json snapshot)? changed;
+  final void Function(List<AudioPeak>)? meterChanged;
+  final _meter = AudioMeter();
   final int maxSeconds;
   File get source =>
       File('${repository.draftDirectory(localId).path}/source.pcm');
@@ -111,6 +115,11 @@ class LocalAudioCapture {
     if (!await microphone.allowed()) {
       throw StateError('Microphone permission required');
     }
+    if (authority is QueueOwnerLease &&
+        await (authority as QueueOwnerLease).availableBytes() <
+            2 * 1024 * 1024) {
+      throw const QueueStorageFailure();
+    }
     _error = null;
     await _checkpoint('capturing'); // Durable identity before microphone opens.
     try {
@@ -161,6 +170,8 @@ class LocalAudioCapture {
       return;
     }
     final stable = Uint8List.fromList(bytes);
+    final peaks = _meter.add(stable);
+    if (peaks.isNotEmpty) meterChanged?.call(peaks);
     _buffered += stable.length;
     _pcmTail = _pcmTail
         .then((_) async {

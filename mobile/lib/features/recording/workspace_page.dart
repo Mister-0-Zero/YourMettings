@@ -1,3 +1,7 @@
+import '../../services/drafts/draft_workspace.dart';
+import '../../services/drafts/draft_record.dart';
+import '../drafts/local_draft_pages.dart';
+import 'draft_recorder_coordinator.dart';
 import '../templates/templates_page.dart';
 
 import 'package:flutter/material.dart';
@@ -16,18 +20,50 @@ class WorkspacePage extends StatelessWidget {
     this.recorder,
     this.review,
     this.drafts,
+    this.localDrafts,
+    this.localRecorder,
     this.visible = true,
   });
   final MeetingController? controller;
   final RecorderCoordinator? recorder;
   final AudioReviewController? review;
   final AudioDraftRepository? drafts;
+  final DraftWorkspace? localDrafts;
+  final DraftRecorderCoordinator? localRecorder;
   final bool visible;
 
   void _open(BuildContext context, String section) {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) {
+          if (section == 'Черновики' &&
+              localDrafts != null &&
+              localRecorder != null) {
+            return LocalDraftsPage(
+              workspace: localDrafts!,
+              recorder: localRecorder!,
+              legacyBuilder: (context, entry) {
+                if (entry?.kind == LocalDraftKind.text &&
+                    controller != null &&
+                    !localDrafts!.legacyTextHandoffPending) {
+                  return TranscriptPage(controller: controller!);
+                }
+                if (entry?.kind == LocalDraftKind.audio &&
+                    recorder?.active == true &&
+                    review != null &&
+                    recorder!.state['id'] ==
+                        entry!.serverIds['audio_session_id']) {
+                  return RecorderPage(recorder: recorder!, review: review!);
+                }
+                return _LegacyMeetingsPage(
+                  controller: controller,
+                  recorder: recorder,
+                  review: review,
+                  drafts: drafts,
+                );
+              },
+            );
+          }
           if (section == 'Черновики') {
             return AudioDraftsPage(
               recorder: recorder,
@@ -59,7 +95,7 @@ class WorkspacePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: drafts ?? const AlwaysStoppedAnimation(0),
+    animation: Listenable.merge([?drafts, ?localDrafts]),
     builder: (context, _) => ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -75,7 +111,7 @@ class WorkspacePage extends StatelessWidget {
               (
                 'Черновики',
                 Icons.description_outlined,
-                'Сохранено: ${drafts?.items.length ?? 0}',
+                'Сохранено: ${(localDrafts?.items.length ?? 0) + (drafts?.items.length ?? 0)}',
                 'drafts',
               ),
               (
@@ -283,6 +319,75 @@ class _AudioDraftsPageState extends State<AudioDraftsPage> {
           ],
         ),
       ),
+    ),
+  );
+}
+
+class _LegacyMeetingsPage extends StatelessWidget {
+  const _LegacyMeetingsPage({
+    this.controller,
+    this.recorder,
+    this.review,
+    this.drafts,
+  });
+  final MeetingController? controller;
+  final RecorderCoordinator? recorder;
+  final AudioReviewController? review;
+  final AudioDraftRepository? drafts;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Прежние встречи')),
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (controller != null &&
+            (controller!.hasOperation ||
+                controller!.selectionActive ||
+                controller!.draft.text.isNotEmpty))
+          ListTile(
+            title: const Text('Транскрипт и обработка'),
+            leading: const Icon(Icons.description_outlined),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => TranscriptPage(controller: controller!),
+              ),
+            ),
+          ),
+        if (recorder?.active == true && review != null)
+          ListTile(
+            title: const Text('Прежняя запись'),
+            leading: const Icon(Icons.mic_none),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) =>
+                    RecorderPage(recorder: recorder!, review: review!),
+              ),
+            ),
+          ),
+        if (drafts?.items.isNotEmpty == true)
+          ListTile(
+            title: const Text('Сохранённые ранее черновики'),
+            leading: const Icon(Icons.history),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => AudioDraftsPage(
+                  recorder: recorder,
+                  review: review,
+                  drafts: drafts,
+                ),
+              ),
+            ),
+          ),
+        if (!(controller?.hasOperation == true ||
+            controller?.selectionActive == true ||
+            controller?.draft.text.isNotEmpty == true ||
+            recorder?.active == true ||
+            drafts?.items.isNotEmpty == true))
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Прежних незавершённых встреч нет.'),
+          ),
+      ],
     ),
   );
 }

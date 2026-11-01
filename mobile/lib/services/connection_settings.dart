@@ -46,14 +46,21 @@ class ConnectionSettings extends ChangeNotifier {
       addresses[p] = (j['addresses'] as Json)[p.name] as String;
     }
     if (j['active'] != null) {
-      final binding = DemoConnection.fromJson(
+      late final DemoConnection binding;
+      binding = DemoConnection.fromJson(
         j['active'] as Json,
         vault,
-        onAccessError: reportAccess,
+        onAccessError: (error) {
+          // An old scoped request can finish after the user changes profile.
+          if (active?.scopeId == binding.scopeId) reportAccess(error);
+        },
       );
-      if ((await vault.read(binding.origin))?.isNotEmpty == true) {
-        active = binding;
+      // This persisted identity was verified by apply(). Local work must not
+      // depend on a currently readable/non-expired network credential.
+      if (binding.accountId.isEmpty || binding.accessMode != 'demo') {
+        throw const FormatException('Invalid previously verified identity');
       }
+      active = binding;
     }
   }
 

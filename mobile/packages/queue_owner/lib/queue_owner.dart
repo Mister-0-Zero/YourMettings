@@ -18,6 +18,13 @@ abstract interface class QueueAudioAuthority implements QueueWriteAuthority {
   Future<void> writeAudio(File file, Uint8List bytes);
 }
 
+abstract interface class QueueOwnerLease implements QueueAudioAuthority {
+  Future<int> availableBytes();
+  Future<void> saveCaptureTicket(String localId, String nonce);
+  Future<void> clearCaptureTicket(String nonce);
+  Future<void> close();
+}
+
 class QueueOwnerLost implements Exception {
   const QueueOwnerLost();
   @override
@@ -34,6 +41,9 @@ class QueueStorageFailure implements Exception {
 
 class NativeQueueOwner {
   static const channel = MethodChannel('yourmettings/queue_owner');
+  static Future<Map<String, String>?> captureTicket() =>
+      channel.invokeMapMethod<String, String>('captureTicket');
+
   static Future<NativeQueueLease?> acquire(String scopeId) async {
     if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(scopeId)) {
       throw ArgumentError('Invalid queue scope');
@@ -47,7 +57,7 @@ class NativeQueueOwner {
 
 /// Owns ALL mutations for this scope. Closing first drains outstanding work;
 /// ownership cannot be handed to another runner while a write/upload is alive.
-class NativeQueueLease implements QueueAudioAuthority {
+class NativeQueueLease implements QueueOwnerLease {
   NativeQueueLease._(this.scopeId, this._token);
   @override
   final String scopeId;
@@ -107,6 +117,20 @@ class NativeQueueLease implements QueueAudioAuthority {
   }
 
   @override
+  Future<void> saveCaptureTicket(String localId, String nonce) =>
+      _nativeMutation('captureTicketWrite', {
+        'local_id': localId,
+        'nonce': nonce,
+      });
+  @override
+  Future<void> clearCaptureTicket(String nonce) =>
+      _nativeMutation('captureTicketClear', {'nonce': nonce});
+
+  @override
+  Future<int> availableBytes() async => (await NativeQueueOwner.channel
+      .invokeMethod<int>('availableBytes', _arguments))!;
+
+  @override
   Future<int> appendPcm(File file, int expectedOffset, Uint8List bytes) async {
     try {
       return (await NativeQueueOwner.channel.invokeMethod<int>('appendPcm', {
@@ -140,6 +164,7 @@ class NativeQueueLease implements QueueAudioAuthority {
   Future<void> eraseDraft(Directory directory) =>
       _nativeMutation('eraseDraft', {'path': directory.absolute.path});
 
+  @override
   Future<void> close() {
     _closing = true;
     return _close ??= _tail.then((_) async {

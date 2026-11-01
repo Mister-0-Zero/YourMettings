@@ -1,3 +1,7 @@
+import '../services/drafts/draft_workspace.dart';
+import '../services/drafts/draft_record.dart';
+import '../features/recording/draft_recorder_coordinator.dart';
+import '../features/drafts/local_draft_pages.dart';
 import 'home_navigation.dart';
 import '../features/settings/connection_page.dart';
 import '../services/connection_settings.dart';
@@ -27,6 +31,8 @@ class YourMettingsApp extends StatefulWidget {
     this.recorder,
     this.audioReview,
     this.drafts,
+    this.localDrafts,
+    this.localRecorder,
     this.connectionSettings,
   });
   final ConnectionSettings? connectionSettings;
@@ -35,6 +41,8 @@ class YourMettingsApp extends StatefulWidget {
   final RecorderCoordinator? recorder;
   final AudioReviewController? audioReview;
   final AudioDraftRepository? drafts;
+  final DraftWorkspace? localDrafts;
+  final DraftRecorderCoordinator? localRecorder;
   @override
   State<YourMettingsApp> createState() => _YourMettingsAppState();
 }
@@ -83,6 +91,8 @@ class _YourMettingsAppState extends State<YourMettingsApp> {
         recorder: widget.recorder,
         audioReview: widget.audioReview,
         drafts: widget.drafts,
+        localDrafts: widget.localDrafts,
+        localRecorder: widget.localRecorder,
       ),
     ),
   );
@@ -96,12 +106,16 @@ class MeetingShell extends StatefulWidget {
     this.recorder,
     this.audioReview,
     this.drafts,
+    this.localDrafts,
+    this.localRecorder,
   });
   final MeetingController? controller;
   final AppearanceController appearance;
   final RecorderCoordinator? recorder;
   final AudioReviewController? audioReview;
   final AudioDraftRepository? drafts;
+  final DraftWorkspace? localDrafts;
+  final DraftRecorderCoordinator? localRecorder;
 
   @override
   State<MeetingShell> createState() => _MeetingShellState();
@@ -124,6 +138,8 @@ class _MeetingShellState extends State<MeetingShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      widget.localRecorder?.foreground();
+      widget.localDrafts?.refreshCatalogs();
       widget.controller?.resume();
       widget.audioReview?.resume();
       widget.recorder?.foreground();
@@ -179,6 +195,8 @@ class _MeetingShellState extends State<MeetingShell>
                   controller: widget.controller,
                   recorder: widget.recorder,
                   audioReview: widget.audioReview,
+                  localDrafts: widget.localDrafts,
+                  localRecorder: widget.localRecorder,
                 ),
                 widget.controller == null
                     ? const PlaceholderPage(
@@ -192,6 +210,8 @@ class _MeetingShellState extends State<MeetingShell>
                   recorder: widget.recorder,
                   review: widget.audioReview,
                   drafts: widget.drafts,
+                  localDrafts: widget.localDrafts,
+                  localRecorder: widget.localRecorder,
                   visible: _selected == 2,
                 ),
                 AppearancePage(controller: widget.appearance),
@@ -251,14 +271,23 @@ class NewMeetingPage extends StatelessWidget {
     this.controller,
     this.recorder,
     this.audioReview,
+    this.localDrafts,
+    this.localRecorder,
   });
+  final DraftWorkspace? localDrafts;
+  final DraftRecorderCoordinator? localRecorder;
   final RecorderCoordinator? recorder;
   final AudioReviewController? audioReview;
   final MeetingController? controller;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: Listenable.merge([?controller, ?recorder]),
+    animation: Listenable.merge([
+      ?controller,
+      ?recorder,
+      ?localDrafts,
+      ?localRecorder,
+    ]),
     builder: (context, _) => ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -274,13 +303,29 @@ class NewMeetingPage extends StatelessWidget {
                   child: FilledButton.icon(
                     icon: const Icon(Icons.mic),
                     label: Text(
-                      recorder?.active == true
+                      localRecorder != null
+                          ? (localRecorder!.recording
+                                ? 'Открыть запись'
+                                : 'Записать встречу')
+                          : recorder?.active == true
                           ? ['review', 'completed'].contains(recorder?.phase)
                                 ? 'Продолжить встречу'
                                 : 'Открыть запись'
                           : 'Записать встречу',
                     ),
-                    onPressed: recorder == null || audioReview == null
+                    onPressed: localDrafts != null && localRecorder != null
+                        ? () => Navigator.of(context).push<void>(
+                            MaterialPageRoute(
+                              builder: (_) => LocalRecorderPage(
+                                workspace: localDrafts!,
+                                recorder: localRecorder!,
+                                localId: localRecorder!.recording
+                                    ? localRecorder!.localId
+                                    : null,
+                              ),
+                            ),
+                          )
+                        : recorder == null || audioReview == null
                         ? null
                         : () => Navigator.of(context).push<void>(
                             MaterialPageRoute(
@@ -302,19 +347,61 @@ class NewMeetingPage extends StatelessWidget {
         ListTile(
           leading: const Icon(Icons.description_outlined),
           title: Text(
-            controller?.hasOperation == true ||
-                    controller?.selectionActive == true
+            localDrafts == null &&
+                    (controller?.hasOperation == true ||
+                        controller?.selectionActive == true)
                 ? 'Открыть обработку'
                 : 'Загрузить транскрипт',
           ),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute(
-              builder: (_) => controller == null
-                  ? const TranscriptDraftPage()
-                  : TranscriptPage(controller: controller!),
+          onTap: localDrafts != null
+              ? () async {
+                  try {
+                    final item = await localDrafts!.create(LocalDraftKind.text);
+                    if (context.mounted) {
+                      await Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) => LocalDraftEditorPage(
+                            workspace: localDrafts!,
+                            record: item,
+                            recorder: localRecorder,
+                          ),
+                        ),
+                      );
+                    }
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Не удалось создать черновик. Завершите запись или проверьте свободное место.',
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                }
+              : () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (_) => controller == null
+                        ? const TranscriptDraftPage()
+                        : TranscriptPage(controller: controller!),
+                  ),
+                ),
+        ),
+        if (localDrafts != null &&
+            controller != null &&
+            (controller!.hasOperation ||
+                controller!.selectionActive ||
+                controller!.draft.text.isNotEmpty))
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: const Text('Прежняя незавершённая встреча'),
+            onTap: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => TranscriptPage(controller: controller!),
+              ),
             ),
           ),
-        ),
         const _UnavailableAction(
           icon: Icons.audio_file_outlined,
           title: 'Загрузить аудио',

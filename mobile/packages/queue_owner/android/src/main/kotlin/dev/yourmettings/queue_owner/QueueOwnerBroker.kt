@@ -87,6 +87,55 @@ internal object QueueOwnerBroker {
         if (!tmp.renameTo(target)) throw IOException("Atomic manifest replacement failed")
     }
 
+    // Only a microphone launch pointer. Queue jobs always use scoped manifests.
+    // No Flutter SharedPreferences/native interop object crosses engine lifetimes.
+    @Synchronized
+    fun captureTicket(root: File): Map<String, String>? {
+        val file = File(root.canonicalFile, "capture-ticket.v1")
+        if (!file.exists()) return null
+        require(file.canonicalFile == file.absoluteFile && file.length() <= 512)
+        val lines = file.readLines(Charsets.US_ASCII)
+        require(lines.size == 3)
+        require(lines[0].matches(Regex("[a-f0-9]{64}")))
+        val uuid = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+        require(lines[1].matches(uuid) && lines[2].matches(uuid))
+        return mapOf("scope" to lines[0], "local_id" to lines[1], "nonce" to lines[2])
+    }
+
+    @Synchronized
+    fun writeCaptureTicket(root: File, scope: String, engine: String, token: String, localId: String, nonce: String) {
+        check(valid(root, scope, engine, token))
+        val uuid = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
+        require(localId.matches(uuid) && nonce.matches(uuid))
+        val manifest = File(root.canonicalFile, "scopes/$scope/drafts/$localId/draft.json")
+        require(manifest.isFile && manifest.canonicalFile == manifest.absoluteFile)
+        val file = File(root.canonicalFile, "capture-ticket.v1")
+        require(file.canonicalFile == file.absoluteFile)
+        val temporary = File(root.canonicalFile, "capture-ticket.$token.$nonce.tmp")
+        RandomAccessFile(temporary, "rw").use {
+            it.setLength(0)
+            it.write("$scope\n$localId\n$nonce\n".toByteArray(Charsets.US_ASCII))
+            it.fd.sync()
+        }
+        if (!temporary.renameTo(file)) throw IOException("Capture launch not committed")
+    }
+
+    @Synchronized
+    fun clearCaptureTicket(root: File, scope: String, engine: String, token: String, nonce: String) {
+        check(valid(root, scope, engine, token))
+        val current = captureTicket(root)
+        if (current?.get("scope") == scope && current["nonce"] == nonce) {
+            val file = File(root.canonicalFile, "capture-ticket.v1")
+            if (!file.delete() && file.exists()) throw IOException("Capture launch not cleared")
+        }
+    }
+
+    @Synchronized
+    fun availableBytes(root: File, scope: String, engine: String, token: String): Long {
+        check(valid(root, scope, engine, token)) { "Queue ownership lost" }
+        return File(root, "scopes/$scope").usableSpace
+    }
+
     /** PCM16 mono/16kHz source, append-only, under the ownership mutex.
      * An ACK means bytes were fsynced. Detach cannot release the lease midway.
      */

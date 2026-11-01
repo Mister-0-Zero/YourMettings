@@ -276,6 +276,7 @@ class RecorderCoordinator extends ChangeNotifier {
   bool busy = false;
   bool handoffPending = false;
   bool _foreignOwner = false;
+  bool _localProtocolActive = false;
   String? _serviceInstance;
   Future<void>? _attaching;
   final _releasedSessions = <String>{};
@@ -287,12 +288,14 @@ class RecorderCoordinator extends ChangeNotifier {
     if (usesAndroidService) {
       FlutterForegroundTask.initCommunicationPort();
       FlutterForegroundTask.addTaskDataCallback(_receive);
+      _localProtocolActive = false;
       if (await FlutterForegroundTask.isRunningService) {
         // Do not recover/close a live file owned by another engine.
         final ready = _firstSnapshot = Completer<void>();
         FlutterForegroundTask.sendDataToTask('snapshot');
         try {
           await ready.future.timeout(const Duration(seconds: 15));
+          if (_localProtocolActive) await _attachLocal();
         } on TimeoutException {
           // The service may have stopped while its snapshot was in transit.
           // Never interpret an unknown owner as an empty/done journal.
@@ -326,6 +329,15 @@ class RecorderCoordinator extends ChangeNotifier {
   }
 
   void _receive(Object value, {bool local = false}) {
+    if (value is Map && value['queue_protocol'] == 2) {
+      // A read-only snapshot from the new FGS proves its protocol, never the
+      // owner of this legacy journal. Avoid a preference/plugin roundtrip before
+      // establishing the existing snapshot handshake.
+      _localProtocolActive = true;
+      final ready = _firstSnapshot;
+      if (ready != null && !ready.isCompleted) ready.complete();
+      return;
+    }
     if (!local && _local != null) return;
     if (value is Map && value['meter'] is List) {
       if (_meterVisible) {

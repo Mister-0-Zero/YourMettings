@@ -23,6 +23,11 @@ class QueueOwnerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         QueueOwnerBroker.releaseEngine(engine)
     }
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "captureTicket") {
+            try { result.success(QueueOwnerBroker.captureTicket(root)) }
+            catch (_: Exception) { result.error("storage_failure", "Capture launch unavailable", null) }
+            return
+        }
         val scope = call.argument<String>("scope")
         if (scope == null || !scope.matches(Regex("[a-f0-9]{64}"))) {
             result.error("invalid_scope", "Invalid queue scope", null)
@@ -40,6 +45,18 @@ class QueueOwnerPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                         "eraseDraft" -> QueueOwnerBroker.eraseDraft(root, scope, engine, token, path)
                     }
                     result.success(null)
+                }
+                "captureTicketWrite", "captureTicketClear" -> {
+                    val token = call.argument<String>("token") ?: error("Missing token")
+                    val nonce = call.argument<String>("nonce") ?: error("Missing nonce")
+                    if (call.method == "captureTicketWrite") QueueOwnerBroker.writeCaptureTicket(root, scope, engine, token,
+                        call.argument<String>("local_id") ?: error("Missing local ID"), nonce)
+                    else QueueOwnerBroker.clearCaptureTicket(root, scope, engine, token, nonce)
+                    result.success(null)
+                }
+                "availableBytes" -> {
+                    val token = call.argument<String>("token") ?: error("Missing token")
+                    result.success(QueueOwnerBroker.availableBytes(root, scope, engine, token))
                 }
                 "appendPcm" -> {
                     val token = call.argument<String>("token") ?: error("Missing token")

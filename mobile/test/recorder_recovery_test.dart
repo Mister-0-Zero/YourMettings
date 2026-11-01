@@ -1,9 +1,13 @@
+import 'dart:io';
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:your_mettings/features/recording/recorder_coordinator.dart';
 
 class AndroidCoordinator extends RecorderCoordinator {
+  AndroidCoordinator({super.directory});
   @override
   bool get usesAndroidService => true;
 }
@@ -75,4 +79,43 @@ void main() {
       recorder.dispose();
     },
   );
+  testWidgets('new local FGS protocol never becomes the legacy journal owner', (
+    tester,
+  ) async {
+    final directory = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('ym-protocol-recovery-'),
+    ))!;
+    await tester.runAsync(() async {
+      final active = Directory('${directory.path}/active-audio');
+      await active.create();
+      await File('${active.path}/session.json')
+          .writeAsString(jsonEncode({'version': 1, 'phase': 'done'}));
+    });
+    final recorder = AndroidCoordinator(directory: directory);
+    var ready = false;
+    final initialization = recorder.initialize().then((_) => ready = true);
+    await tester.pump();
+    for (final callback in FlutterForegroundTask.dataCallbacks.toList()) {
+      callback({
+        'queue_protocol': 2,
+        'scope_id': 'other-scope',
+        'local_id': 'new-local-id',
+        'service_instance': 'new-instance',
+        'phase': 'recording',
+      });
+    }
+    for (var n = 0; n < 30 && !ready; n++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
+    expect(ready, isTrue);
+    await initialization;
+    expect(recorder.phase, 'done');
+    expect(recorder.state['id'], isNot('new-local-id'));
+    expect(recorder.state.containsKey('queue_protocol'), isFalse);
+    recorder.dispose();
+    await tester.runAsync(() => directory.delete(recursive: true));
+  });
 }
