@@ -84,8 +84,10 @@ def get_session(id: UUID, db: Session = Depends(get_db)):
     409: {"description": "Unsupported state, active upload, dependencies or failed safe cleanup"},
     422: {"description": "Explicit confirmation required or invalid query"},
     503: {"description": "Database unavailable"}})
-def delete_session(id: UUID, confirm: bool = Query(False), db: Session = Depends(get_db)):
-    delete_unconfirmed_session(db, id, confirm=confirm)
+def delete_session(id: UUID, confirm: bool = Query(False),
+    discard_unprocessed: bool = Query(False, description="Explicitly discard owned review audio before ASR completion; never bypass processed-source or dependency guards"),
+    db: Session = Depends(get_db)):
+    delete_unconfirmed_session(db, id, confirm=confirm, discard_unprocessed=discard_unprocessed)
     db.commit()
     return Response(status_code=204)
 

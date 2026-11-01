@@ -146,6 +146,17 @@ def claim_chunk(db, generation):
         "payload": chunk.payload, "format": chunk.audio_format}
 
 
+def current_asr_claim(db, job, generation):
+    """Read again after the scratch guard; a deleted/cancelled claim writes no files."""
+    state = db.get(ASRWorkerState, 1)
+    session = db.get(AudioSession, job["session_id"])
+    chunk = db.get(AudioChunk, job["id"])
+    return bool(state and state.generation == generation and session and chunk
+        and chunk.session_id == session.id and chunk.claimed_by == generation
+        and chunk.attempt == job["attempt"] and chunk.status == "transcribing"
+        and not (session.pipeline_config and session.pipeline_config["phase"] == "cancelled"))
+
+
 def finish_chunk(db, job, generation, *, text=None, segments=None, error=None):
     owner = db.scalar(select(AudioSession.user_id).where(AudioSession.id == job["session_id"]))
     if owner is None:

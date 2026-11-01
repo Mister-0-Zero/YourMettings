@@ -17,7 +17,8 @@ from sqlalchemy import text, update
 from app.core.config import settings
 from app.db.audio_models import ASRWorkerState
 from app.db.session import get_session_factory
-from app.services.audio import claim_chunk, finish_chunk, recover_worker
+from app.services.audio import claim_chunk, finish_chunk, recover_worker, current_asr_claim
+from app.services.audio_files import guard_asr_files
 from app.services.gpu import gpu_slot
 from dev_launcher import StartupMutex
 
@@ -89,6 +90,29 @@ class Coordinator:
         if not ready.get("ready"):
             raise RuntimeError(ready.get("error", "asr_load_failed"))
 
+    def process_job(self, job):
+        # Delete either wins before this guard (no copy is created), or receives
+        # a retryable busy conflict until this fragment closes its Windows files.
+        with guard_asr_files(self.factory, job["session_id"]):
+            with self.factory() as db:
+                if not current_asr_claim(db, job, self.generation):
+                    return False
+            with tempfile.TemporaryDirectory(prefix=f"job-{job['session_id']}-", dir=SCRATCH) as folder:
+                source = Path(folder) / "audio.bin"
+                source.write_bytes(job.pop("payload"))
+                with gpu_slot(self.factory, settings.asr_gpu_serial, on_wait=self.pulse):
+                    self.child.stdin.write(json.dumps({"path": str(source), "format": job["format"]}) + "\n")
+                    self.child.stdin.flush()
+                    result = self.receive(settings.asr_job_timeout_seconds)
+        # File guard is released before taking the user/row locks in finish_chunk.
+        with self.factory.begin() as db:
+            saved = finish_chunk(db, job, self.generation, text=result.get("text"),
+                segments=result.get("segments"), error=result.get("error"))
+        print(json.dumps({"chunk_id": str(job["id"]), "error": result.get("error"),
+            "seconds": result.get("seconds"), "audio_seconds": result.get("audio_seconds"),
+            "peak_allocated_mib": result.get("peak_allocated_mib")}), flush=True)
+        return saved
+
     def run(self):
         with StartupMutex(ROOT / "asr-worker"):
             self.lock_connection = self.factory.kw["bind"].connect()
@@ -120,19 +144,7 @@ class Coordinator:
                         continue
                     self.status, self.last_pulse = "busy", 0
                     try:
-                        with tempfile.TemporaryDirectory(prefix=f"job-{job['session_id']}-", dir=SCRATCH) as folder:
-                            source = Path(folder) / "audio.bin"
-                            source.write_bytes(job.pop("payload"))
-                            with gpu_slot(self.factory, settings.asr_gpu_serial, on_wait=self.pulse):
-                                self.child.stdin.write(json.dumps({"path": str(source), "format": job["format"]}) + "\n")
-                                self.child.stdin.flush()
-                                result = self.receive(settings.asr_job_timeout_seconds)
-                        with self.factory.begin() as db:
-                            finish_chunk(db, job, self.generation, text=result.get("text"),
-                                segments=result.get("segments"), error=result.get("error"))
-                        print(json.dumps({"chunk_id": str(job["id"]), "error": result.get("error"),
-                            "seconds": result.get("seconds"), "audio_seconds": result.get("audio_seconds"),
-                            "peak_allocated_mib": result.get("peak_allocated_mib")}), flush=True)
+                        self.process_job(job)
                     except Exception:
                         # Leave the durable payload/claim intact for the next owner's recovery.
                         raise

@@ -87,3 +87,8 @@ Boundary warnings требуют реального просмотра и сущ
 ## Fixture для мобильной приёмки
 
 Локальный synthetic Windows Russian TTS: `C:/Users/Алексей/Documents/ChatGPT/YourMettings/offline-synthetic.wav`, WAV PCM mono16000Hz/16-bit,21.630с,692206байт. В Git не добавлен. Проверен реальными GigaAM/Qwen; использовать только этот синтетический материал, не пользовательские встречи.
+
+
+## Дополнение: удаление review draft до ASR (ещё не развёрнуто)
+
+Точный opt-in контракт и rollout-граница: [FLUTTER_REVIEW_DISCARD_HANDOFF.md](FLUTTER_REVIEW_DISCARD_HANDOFF.md). После deployment DELETE с confirm=true&discard_unprocessed=true позволит отказ от незавершённой review-сессии без complete; busy409 сохраняет намерение для повтора. До сигнала READY новый код не считать включённым на текущем USB runtime.

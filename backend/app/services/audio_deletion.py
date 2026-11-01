@@ -12,7 +12,7 @@ from app.api.errors import fail
 from app.db.audio_models import AudioChunk, AudioSession, AudioSessionDeletion
 from app.db.models import Transcript
 from app.db.session import current_user_id, get_db
-from app.services.audio_files import cleanup_session_files
+from app.services.audio_files import cleanup_session_files, asr_file_lock_key
 from app.services.deletion import has_external_references, has_references, lock_user_data
 
 
@@ -47,7 +47,7 @@ async def guard_audio_upload(id: UUID, db: Session = Depends(get_db)):
             await run_in_threadpool(release)
 
 
-def delete_unconfirmed_session(db, session_id, *, confirm):
+def delete_unconfirmed_session(db, session_id, *, confirm, discard_unprocessed=False):
     if not confirm:
         fail(422, "confirmation_required", "Подтвердите удаление аудиовстречи.")
     lock_user_data(db)
@@ -59,16 +59,30 @@ def delete_unconfirmed_session(db, session_id, *, confirm):
         AudioSession.user_id == current_user_id(db)).with_for_update())
     if item is None:
         fail(404, "not_found", "Аудиосессия не найдена.")
+    review_discard = discard_unprocessed and item.pipeline_config is None
+    if review_discard and item.status not in ("recording", "transcribing", "failed", "ready_for_review"):
+        fail(409, "audio_session_not_deletable", "Подтверждённую встречу нельзя удалить как незавершённую запись.")
     automatic_terminal = bool(item.pipeline_config and item.pipeline_config.get("phase") in
         ("cancelled", "error", "needs_input", "review_required"))
-    if item.status != "ready_for_review" and not (automatic_terminal and item.pipeline_config["phase"] == "cancelled"):
+    if not review_discard and item.status != "ready_for_review" and not (automatic_terminal and item.pipeline_config["phase"] == "cancelled"):
         fail(409, "audio_session_not_deletable", "Дождитесь ASR или явно отмените автоматическую встречу.")
     if not db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": upload_lock_key(session_id)}):
         fail(409, "audio_session_busy", "Дождитесь завершения загрузки фрагмента и повторите удаление.")
+    # Active ASR owns a shared file lock until all temporary files are closed.
+    # Never remove an in-use Windows input or invalidate its TemporaryDirectory.
+    if not db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": asr_file_lock_key(session_id)}):
+        fail(409, "audio_session_busy", "ASR использует рабочую копию; повторите удаление после текущего фрагмента.")
     source = db.scalar(select(Transcript).where(Transcript.id == item.transcript_id).with_for_update()) if item.transcript_id else None
     chunks = list(db.scalars(select(AudioChunk).where(AudioChunk.session_id == session_id)
         .order_by(AudioChunk.sequence_number).with_for_update()))
-    if automatic_terminal:
+    if review_discard:
+        # Row locks serialize queued claim vs deletion. An already claimed job is
+        # harmless only while no worker holds the separate scratch-file guard.
+        valid = (item.transcript_id is None and source is None) or (
+            source is not None and source.owner_user_id == current_user_id(db)
+            and source.processing_status == "not_started" and source.processing_attempt == 0
+            and source.first_processed_at is None and source.idempotency_key is None and source.request_hash is None)
+    elif automatic_terminal:
         valid = (source is None and item.pipeline_config["phase"] == "cancelled") or (
             source is not None and source.owner_user_id == current_user_id(db)
             and source.processing_status in ("not_started", "error") and source.first_processed_at is None

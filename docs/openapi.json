@@ -1215,6 +1215,18 @@
               "default": false,
               "title": "Confirm"
             }
+          },
+          {
+            "name": "discard_unprocessed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Explicitly discard owned review audio before ASR completion; never bypass processed-source or dependency guards",
+              "default": false,
+              "title": "Discard Unprocessed"
+            },
+            "description": "Explicitly discard owned review audio before ASR completion; never bypass processed-source or dependency guards"
           }
         ],
         "responses": {
