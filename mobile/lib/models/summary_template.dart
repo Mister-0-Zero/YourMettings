@@ -149,8 +149,10 @@ class SummaryTemplate {
     required this.input,
     required this.isSystem,
     required this.isDefault,
+    this.version,
   });
   final String id;
+  final String? version;
   final TemplateInput input;
   final bool isSystem;
   final bool isDefault;
@@ -159,6 +161,7 @@ class SummaryTemplate {
     input: TemplateInput.fromJson(j),
     isSystem: j['is_system'] as bool,
     isDefault: j['is_default'] as bool,
+    version: j['version'] as String?,
   );
 }
 

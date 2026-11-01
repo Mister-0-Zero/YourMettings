@@ -1,0 +1,16 @@
+name: queue_owner
+description: Single writer authority shared by YourMettings Android engines.
+version: 0.0.1
+publish_to: none
+environment:
+  sdk: ^3.13.0
+  flutter: '>=3.38.0'
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.yourmettings.queue_owner
+        pluginClass: QueueOwnerPlugin

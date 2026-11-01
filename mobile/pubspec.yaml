@@ -1,7 +1,7 @@
 name: your_mettings
 description: "Мобильный помощник для обработки рабочих встреч."
 publish_to: 'none'
-version: 0.1.5+6
+version: 0.1.6+7
 
 environment:
   sdk: ^3.13.0
@@ -21,11 +21,16 @@ dependencies:
   markdown: ^7.3.1
   markdown_quill: ^4.3.0
   path_provider: ^2.1.6
+  queue_owner:
+    path: packages/queue_owner
+  workmanager: 0.10.10
   record: ^7.1.2
   url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
 
