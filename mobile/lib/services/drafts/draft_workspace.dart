@@ -56,12 +56,13 @@ class DraftWorkspace extends ChangeNotifier {
 
   Future<T> withOwner<T>(
     Future<T> Function(LocalDraftRepository repository, QueueOwnerLease lease)
-    action,
-  ) {
+    action, {
+    bool requestHandoff = true,
+  }) {
     if (_closed) return Future.error(StateError('Workspace closed'));
     final task = _mutations.then((_) async {
       var lease = await acquireOwner(connection.scopeId);
-      if (lease == null) {
+      if (lease == null && requestHandoff) {
         await yieldOwner(connection.scopeId);
         final until = DateTime.now().add(acquireTimeout);
         while (lease == null && DateTime.now().isBefore(until)) {

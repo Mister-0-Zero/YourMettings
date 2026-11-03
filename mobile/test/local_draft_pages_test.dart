@@ -23,6 +23,85 @@ Future<void> io(WidgetTester tester, {int turns = 60}) async {
 
 void main() {
   testWidgets(
+    'paused recorder observer does not make a background queue owner yield',
+    (tester) async {
+      final fixture = (await tester.runAsync(DraftTestFixture.create))!;
+      await tester.runAsync(() => fixture.workspace.initialize());
+      const foreground = MethodChannel('flutter_foreground_task/methods');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var serviceChecks = 0;
+      var staleTicket = false;
+      messenger.setMockMethodCallHandler(foreground, (call) async {
+        if (call.method == 'isRunningService') {
+          serviceChecks++;
+          return false;
+        }
+        return null;
+      });
+      messenger.setMockMethodCallHandler(NativeQueueOwner.channel, (
+        call,
+      ) async {
+        expect(call.method, 'captureTicket');
+        return staleTicket
+            ? {
+                'scope': fixture.connection.scopeId,
+                'nonce': '12345678-1234-1234-1234-123456789abc',
+              }
+            : null;
+      });
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final recorder = DraftRecorderCoordinator(fixture.workspace);
+      QueueOwnerLease? worker;
+      try {
+        final init = recorder.initialize();
+        await io(tester);
+        await init;
+        expect(serviceChecks, greaterThan(0));
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        fixture.pool.cooperativeYield = true;
+        worker = await fixture.pool.acquire(fixture.connection.scopeId);
+        expect(worker, isNotNull);
+        final before = serviceChecks;
+        await tester.pump(const Duration(seconds: 6));
+        await io(tester, turns: 12);
+        expect(
+          fixture.pool.yielding,
+          isEmpty,
+          reason: 'An idle UI must not cancel a headless upload/poll owner.',
+        );
+        expect(serviceChecks, before);
+        staleTicket = true;
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await io(tester);
+        expect(
+          serviceChecks,
+          greaterThan(before),
+          reason: 'Foreground restoration must still run after resuming.',
+        );
+        expect(
+          fixture.pool.yielding,
+          isEmpty,
+          reason: 'Passive stale-ticket recovery waits for an idle owner.',
+        );
+      } finally {
+        await worker?.close();
+        final closing = recorder.close();
+        await io(tester, turns: 12);
+        await closing;
+        recorder.dispose();
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        messenger.setMockMethodCallHandler(foreground, null);
+        messenger.setMockMethodCallHandler(NativeQueueOwner.channel, null);
+        await tester.runAsync(fixture.close);
+      }
+    },
+  );
+  testWidgets(
     'main UI opens and creates independent local text with offline API and no vault key',
     (tester) async {
       final fixture = (await tester.runAsync(DraftTestFixture.create))!;
@@ -308,7 +387,8 @@ void main() {
         messenger.setMockMethodCallHandler(foreground, (call) async {
           if (call.method == 'isRunningService') return true;
           if (call.method == 'sendData') {
-            for (final callback in FlutterForegroundTask.dataCallbacks.toList()) {
+            for (final callback
+                in FlutterForegroundTask.dataCallbacks.toList()) {
               callback({
                 'queue_protocol': 2,
                 'scope_id': fixture.connection.scopeId,

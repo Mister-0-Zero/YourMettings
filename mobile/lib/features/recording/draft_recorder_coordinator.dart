@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart'
+    show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:queue_owner/queue_owner.dart';
@@ -267,14 +269,16 @@ class _LocalAudioTask extends TaskHandler {
   void onNotificationPressed() => FlutterForegroundTask.launchApp();
 }
 
-class DraftRecorderCoordinator extends ChangeNotifier {
+class DraftRecorderCoordinator extends ChangeNotifier
+    with WidgetsBindingObserver {
   DraftRecorderCoordinator(this.workspace);
   final DraftWorkspace workspace;
   Json state = {};
   String? error;
   bool busy = false, _closed = false, _meterVisible = false;
   Timer? _watch;
-  bool _watching = false;
+  bool _watching = false, _visible = true;
+  bool get _canObserve => _visible && !_closed && !busy;
   Future<void>? _foregroundTask, _restoringTask, _closing;
   final meter = ValueNotifier<List<AudioPeak>>([]);
   final _replies = <int, Completer<bool>>{};
@@ -287,11 +291,16 @@ class DraftRecorderCoordinator extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    final binding = WidgetsBinding.instance;
+    _visible =
+        (binding.lifecycleState ?? AppLifecycleState.resumed) ==
+        AppLifecycleState.resumed;
+    binding.addObserver(this);
     FlutterForegroundTask.initCommunicationPort();
     FlutterForegroundTask.addTaskDataCallback(_receive);
     await _restoreForeground();
     _watch = Timer.periodic(const Duration(seconds: 2), (_) async {
-      if (_watching || _closed) return;
+      if (_watching || !_canObserve) return;
       _watching = true;
       try {
         await _restoreForeground();
@@ -299,6 +308,12 @@ class DraftRecorderCoordinator extends ChangeNotifier {
         _watching = false;
       }
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _visible = state == AppLifecycleState.resumed;
+    if (_canObserve) unawaited(_restoreForeground());
   }
 
   Future<void> _restoreForeground() => _restoringTask ??= _doRestoreForeground()
@@ -314,16 +329,19 @@ class DraftRecorderCoordinator extends ChangeNotifier {
   }
 
   Future<void> foreground() {
-    if (_closed) return Future.value();
+    if (!_canObserve) return Future.value();
     return _foregroundTask ??= _readForeground().whenComplete(
       () => _foregroundTask = null,
     );
   }
 
   Future<void> _readForeground() async {
-    if (_closed || busy) return;
-    if (await localCaptureServiceRunning()) {
+    if (!_canObserve) return;
+    final serviceRunning = await localCaptureServiceRunning();
+    if (!_canObserve) return;
+    if (serviceRunning) {
       final serviceScope = (await NativeQueueOwner.captureTicket())?['scope'];
+      if (!_canObserve) return;
       if (serviceScope != workspace.connection.scopeId) {
         error = 'Микрофон используется другим подключением. Сначала завершите ту запись.';
         _notify();
@@ -336,22 +354,32 @@ class DraftRecorderCoordinator extends ChangeNotifier {
       });
     } else {
       try {
-        await workspace.withOwner((repo, lease) async {
-          for (final record in (await repo.list()).items) {
-            if ([
-              'recording',
-              'paused',
-              'capturing',
-            ].contains(record.toJson()['state'])) {
-              await LocalAudioCapture.recover(repo, record.localId);
+        final ticket = await NativeQueueOwner.captureTicket();
+        final needsRecovery =
+            ticket?['scope'] == workspace.connection.scopeId ||
+            (await workspace.reader.list()).items.any(_hasInterruptedCapture);
+        if (!_canObserve) return;
+        if (needsRecovery) {
+          // The passive UI must not interrupt uploads or polling in another
+          // engine. Explicit start/settings actions still request handoff.
+          await workspace.withOwner((repo, lease) async {
+            if (!_canObserve || await localCaptureServiceRunning()) return;
+            if (!_canObserve) return;
+            for (final record in (await repo.list()).items) {
+              if (!_canObserve) return;
+              if (_hasInterruptedCapture(record)) {
+                await LocalAudioCapture.recover(repo, record.localId);
+              }
             }
-          }
-          final ticket = await NativeQueueOwner.captureTicket();
-          if (ticket?['scope'] == workspace.connection.scopeId &&
-              ticket?['nonce'] != null) {
-            await lease.clearCaptureTicket(ticket!['nonce']!);
-          }
-        });
+            final current = await NativeQueueOwner.captureTicket();
+            if (_canObserve &&
+                current?['scope'] == workspace.connection.scopeId &&
+                current?['nonce'] != null &&
+                current?['nonce'] == ticket?['nonce']) {
+              await lease.clearCaptureTicket(current!['nonce']!);
+            }
+          }, requestHandoff: false);
+        }
       } on QueueOwnerLost {
         /* A concurrent worker owns recovery. */
       } catch (_) {
@@ -372,6 +400,9 @@ class DraftRecorderCoordinator extends ChangeNotifier {
     await workspace.reload();
     _notify();
   }
+
+  bool _hasInterruptedCapture(LocalDraftRecord record) =>
+      ['recording', 'paused', 'capturing'].contains(record.toJson()['state']);
 
   void _receive(Object value) {
     if (_closed ||
@@ -578,6 +609,7 @@ class DraftRecorderCoordinator extends ChangeNotifier {
 
   Future<void> close() => _closing ??= _close();
   Future<void> _close() async {
+    WidgetsBinding.instance.removeObserver(this);
     _watch?.cancel();
     FlutterForegroundTask.removeTaskDataCallback(_receive);
     // Closing an Activity does not stop the foreground microphone service.
