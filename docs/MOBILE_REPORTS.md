@@ -2,7 +2,7 @@
 
 Рабочая ветка — `mobile`. Основной отчёт от начала этапа шаблонов до 31 октября 2026: [сводка выполненных работ](MOBILE_PROGRESS_REPORT_2026-10-31.md).
 
-Дата в таблице — дата выполнения соответствующего этапа; число тестов — весь набор на этом этапе, не количество новых тестов. Проверка на телефоне указывается отдельно от сборки и автоматических проверок. Текущий этап: **01.11.2026, B завершён на ПК** (`457525b`) — production offline queue/automatic/review/WorkManager/UI; **389 Flutter +12 native tests**, analyze и финальная APK0.1.6+7 прошли. Реальные host GigaAM/Qwen, manual audio/text, lostACK/retry/repair/cancel/delete проверены; QA очищена. Установка и Android/OEM-приёмка перенесены пользователем на потом. [Отчёт B и APK](MOBILE_OFFLINE_PIPELINE_2026-11-01.md), [исторический отчёт A](MOBILE_OFFLINE_UI_FGS_2026-11-01.md), [план/checkpoint](MOBILE_OFFLINE_QUEUE_PLAN_2026-11-01.md).
+Дата в таблице — дата соответствующего этапа; число тестов — весь набор на этом этапе. Текущий этап: **03.11.2026, приёмка на HONOR 400 и исправление фоновой очереди** (`4baae21`). Проверены офлайн-запись и черновики, ручное и автоматическое сохранение, варианты, редактор, папки и фоновая обработка текста. **390 Flutter-тестов**, анализ и обновление APK прошли. [MOBILE_OFFLINE_PHONE_QA_2026-11-03.md](MOBILE_OFFLINE_PHONE_QA_2026-11-03.md). Проверки с выключенным экраном, Doze и перезагрузкой остаются отдельным этапом.
 
 | Дата | Этап | Автоматические тесты | Проверка HONOR 400 | Подробный отчёт |
 |---|---|---:|---|---|
@@ -20,8 +20,8 @@
 | 01.11.2026 | Добавление и перемещение по папкам, folder CAS и защита content baseline/выбора шаблона | 288 + целевые 18 после финального уточнения | Выполнена: A+C → A+B+C → B+C, общая правка/цвет, исходные файлы сохранены | [Отчёт](MOBILE_FOLDERS_2026-11-01.md) |
 | 01.11.2026 | Offline-основа: независимые manifests/cache/staging, local PCM и frozen WAV plan, native single owner | 315 полный, после фикса 16 целевых + 9 JVM; analyze/APK успешны | Отдельный headless/ownership/publish probe; основной APK не заменён | [Checkpoint основы](MOBILE_OFFLINE_FOUNDATION_2026-11-01.md) |
 | 01.11.2026 | A: cold local UI, независимые draft settings, foreground mic, legacy handoff, NativeInterop restore fix | 343 Flutter + 11 native; analyze/APK успешны | Isolated:2audio+2text, pause/resume/Home, restart/FGS recreation; probe удалён,10JSON основной1.5 неизменны | [Отчёт A](MOBILE_OFFLINE_UI_FGS_2026-11-01.md) |
-
 | 01.11.2026 | B: offline queue/automatic/review, WorkManager/scoped UI, lostACK/atomic accept/cancel/retry/discard |389 Flutter +12 JVM; analyze/final APK/signature прошли | Host real ASR/Qwen/repair и5Summary без дублей; Android/OEM отложены пользователем | [Отчёт B](MOBILE_OFFLINE_PIPELINE_2026-11-01.md) |
+| 03.11.2026 | HONOR 400: приёмка офлайн-очереди и устранение конкуренции со свёрнутым диктофоном | 390 Flutter; analyze и release APK прошли | APK установлена; ручное и автоматическое аудио, фоновой текст, варианты, папки | [MOBILE_OFFLINE_PHONE_QA_2026-11-03.md](MOBILE_OFFLINE_PHONE_QA_2026-11-03.md) |
 
 ## Более ранние этапы
 
